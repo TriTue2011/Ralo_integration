@@ -1,6 +1,9 @@
 {
   "domain": "zalo_call",
   "name": "Zalo Call",
+  "after_dependencies": [
+    "assist_pipeline"
+  ],
   "codeowners": [
     "@TriTue2011"
   ],
