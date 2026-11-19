@@ -1,0 +1,20 @@
+{
+  "domain": "zalo_call",
+  "name": "Zalo Call",
+  "codeowners": [
+    "@TriTue2011"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "http",
+    "webhook",
+    "conversation",
+    "camera"
+  ],
+  "documentation": "https://github.com/TriTue2011/zalo_call",
+  "integration_type": "service",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/TriTue2011/zalo_call/issues",
+  "requirements": [],
+  "version": "2026.11.19.2"
+}

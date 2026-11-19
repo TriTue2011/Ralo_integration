@@ -1,0 +1,55 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect Zalo PC app",
+        "description": "Address of the Zalo app (add-on or Docker) as http://<IP of the machine running the app>:8080, plus the app's username and password. For the no-UI build use the pair set in the add-on options or ZALO_PC_APP_USER/ZALO_PC_APP_PASSWORD (if none was set the app generated one; see the app log).",
+        "data": {
+          "url": "App URL",
+          "username": "Username",
+          "password": "Password"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-enter the Zalo PC app password",
+        "description": "The app at {url} rejected the login (the password may have just been changed). Enter the current password for {username}.",
+        "data": {
+          "password": "Password"
+        }
+      },
+      "reconfigure": {
+        "title": "Change the Zalo PC app connection",
+        "description": "Edit the address or account; default devices and other settings are kept.",
+        "data": {
+          "url": "App address",
+          "username": "Username",
+          "password": "Password"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach the app. Check address and port 8080.",
+      "invalid_auth": "Wrong app username or password."
+    },
+    "abort": {
+      "already_configured": "This app is already added.",
+      "reauth_successful": "Password updated; reconnected.",
+      "reconfigure_successful": "App connection updated."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Recipients for messages and calls",
+        "description": "Pick people and groups from your Zalo contacts to use as recipients. Each one becomes a notify entity you can choose in blueprints and automations (no typing Zalo ids).",
+        "data": {
+          "recipients": "Recipients"
+        }
+      }
+    },
+    "abort": {
+      "cannot_connect": "Cannot load contacts from the app",
+      "not_loaded": "Integration is not loaded yet"
+    }
+  }
+}

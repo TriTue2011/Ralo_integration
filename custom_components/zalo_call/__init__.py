@@ -1,0 +1,298 @@
+"""Zalo Call — gọi điện, tin nhắn và 96 service Zalo cho Home Assistant.
+
+Tích hợp này không tự nói chuyện với Zalo: nó gọi sang app Zalo PC chạy
+trong Docker (`zalo/zalo-pc-app`, cùng repo), giống cách `zalo_bot` gọi gateway.
+App đẩy sự kiện (tin nhắn, cuộc gọi) về HA qua webhook; HA bắn lại lên bus
+dưới tên `zalo_call_message`, `zalo_call_call`, `zalo_call_group_event`,
+`zalo_call_reaction`.
+"""
+from __future__ import annotations
+
+import logging
+from typing import Any
+from urllib.parse import urlsplit
+from dataclasses import dataclass, field
+from datetime import timedelta
+
+import aiohttp
+from aiohttp import web
+
+from homeassistant.components import webhook
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed, ConfigEntryNotReady
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
+from homeassistant.helpers.network import NoURLAvailableError, get_url
+from homeassistant.helpers.update_coordinator import (
+    DataUpdateCoordinator,
+    UpdateFailed,
+)
+
+from .ai import async_handle_message
+from .api import ZaloCallApi, ZaloCallAuthError, ZaloCallError
+from .bridge import CallAudioBridge
+from .bridge_core import derive_state
+from .call_voice import CallVoice, on_call_state
+from .devices import DeviceDefaults
+from .rules import get_rules
+from .llm_api import async_register_llm_api
+from .const import (
+    CONF_HA_URL,
+    CONF_PASSWORD,
+    CONF_URL,
+    CONF_USERNAME,
+    CONF_WEBHOOK_ID,
+    DOMAIN,
+    EVENT_PREFIX,
+    EVENT_STATE,
+    SCAN_INTERVAL_SECONDS,
+)
+from .services import async_register_services
+
+_LOGGER = logging.getLogger(__name__)
+PLATFORMS = ["sensor", "binary_sensor", "select", "text", "switch", "number", "button", "notify", "image"]
+WEBHOOK_KINDS = ("message", "group_event", "reaction", "call")
+# Trang thai ket thuc: dung cau noi am thanh (loa/mic) cua cuoc goi do.
+TERMINAL_STATES = ("ended", "no_answer", "declined", "missed", "rejected",
+                   "error")
+
+
+@dataclass
+class ZaloCallData:
+    api: ZaloCallApi
+    coordinator: "ZaloCallCoordinator"
+    bridge: CallAudioBridge
+    defaults: DeviceDefaults
+    voice: CallVoice = field(default_factory=CallVoice)     # kế hoạch giọng nói/AI theo từng cuộc gọi
+
+
+class ZaloCallCoordinator(DataUpdateCoordinator[dict]):
+    """Trạng thái đăng nhập Zalo + danh sách cuộc gọi, 10 giây một lần."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry,
+                 api: ZaloCallApi) -> None:
+        super().__init__(hass, _LOGGER, name=DOMAIN, config_entry=entry,
+                         update_interval=timedelta(seconds=SCAN_INTERVAL_SECONDS))
+        self.api = api
+        self.bridge: CallAudioBridge | None = None   # gan sau khi tao (de day lai mac dinh)
+        self._live_ids: set[str] = set()             # cuộc gọi đã thấy còn sống ở lần hỏi trước (để phát hiện cuộc biến mất khi app khởi động lại)
+
+    async def _async_update_data(self) -> dict:
+        try:
+            status = await self.api.status()
+            if isinstance(status, dict) and not status.get("login"):
+                # CHƯA đăng nhập Zalo: /api/calls trả 401 (chua_dang_nhap) nên trước đây cả bộ cập nhật hỏng và mọi cảm biến thành «không khả dụng», không báo được
+                # «chưa đăng nhập». Không có cuộc gọi nào để lấy: bỏ qua; xem trạng thái QR; báo cầu nối «chưa sẵn sàng» để đẩy lại mặc định khi đăng nhập xong.
+                data = {"status": status, "calls": {"active": None, "calls": []}}
+                try:
+                    data["qr"] = await self.api.qr_status()
+                except ZaloCallError:
+                    pass
+                if self.bridge is not None:
+                    self.bridge.policy.poll(False)
+                return data
+            calls = await self.api.calls()
+        except ZaloCallAuthError as err:
+            # Doi mat khau trong WebUI app: dung hoi, de HA mo luong nhap lai mat khau.
+            raise ConfigEntryAuthFailed(str(err)) from err
+        except ZaloCallError as err:
+            if self.bridge is not None:
+                self.bridge.policy.poll(False)
+            raise UpdateFailed(str(err)) from err
+        if self.bridge is not None and self.bridge.policy.poll(True):
+            self.hass.async_create_task(self.bridge.async_push_defaults())
+        self._forget_vanished(calls)
+        return {"status": status, "calls": calls}
+
+    def _forget_vanished(self, calls: Any) -> None:
+        """Cuộc gọi đang sống rồi BIẾN MẤT khỏi danh sách (app khởi động lại giữa cuộc gọi) thì không bao giờ có webhook «ended»: dọn mọi thứ gắn theo call_id
+        (hẹn giờ, tác vụ, quy tắc đã chốt, âm lượng loa đã hạ). Không bắn sự kiện: automation không được báo một cuộc «kết thúc» mà HA chưa thấy kết thúc."""
+        rows = (calls or {}).get("calls") if isinstance(calls, dict) else None
+        rows = [c for c in rows if isinstance(c, dict)] if isinstance(rows, list) else []
+        present = {str(c.get("call_id")) for c in rows}
+        live = {str(c.get("call_id")) for c in rows if str(c.get("status") or "") not in ("", "ended")}
+        data = self.hass.data.get(DOMAIN, {}).get(self.config_entry.entry_id)
+        for cid in self._live_ids - present:
+            if self.bridge is not None:
+                self.hass.async_create_task(self.bridge.stop(cid))
+            if data is not None:
+                on_call_state(self.hass, data, "ended", cid, TERMINAL_STATES, {})
+        self._live_ids = live
+
+
+async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+    hass.data.setdefault(DOMAIN, {})
+    await async_register_services(hass)
+    async_register_llm_api(hass)          # Assist: tích «Zalo Call» trong cài đặt trợ lý hội thoại là dùng được, không cần automation/prompt
+    return True
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    session = async_create_clientsession(
+        hass, cookie_jar=aiohttp.CookieJar(unsafe=True))
+    api = ZaloCallApi(session, entry.data[CONF_URL], entry.data[CONF_USERNAME],
+                      entry.data[CONF_PASSWORD])
+    try:
+        await api.login()
+    except ZaloCallAuthError as err:
+        raise ConfigEntryAuthFailed(str(err)) from err
+    except ZaloCallError as err:
+        raise ConfigEntryNotReady(str(err)) from err
+
+    coordinator = ZaloCallCoordinator(hass, entry, api)
+    await coordinator.async_config_entry_first_refresh()
+    defaults = DeviceDefaults(hass, entry.entry_id)
+    await defaults.async_load(entry.options)
+    bridge = CallAudioBridge(hass, entry, api, defaults)
+    coordinator.bridge = bridge
+    hass.data[DOMAIN][entry.entry_id] = ZaloCallData(api, coordinator, bridge,
+                                                     defaults)
+
+    webhook_id = entry.data[CONF_WEBHOOK_ID]
+
+    async def _handle(hass_: HomeAssistant, wid: str, request: web.Request):
+        try:
+            payload = await request.json()
+        except ValueError:
+            return web.Response(status=400)
+        if not isinstance(payload, dict):
+            return web.Response(status=400)
+        kind = str(payload.get("event") or "")
+        if kind in WEBHOOK_KINDS:
+            hass_.bus.async_fire(EVENT_PREFIX + kind, payload)
+        if kind == "voice2text":
+            # Ket qua Zalo AI chuyen giong noi: zalo_call_voice_to_text {req_id, text, error}
+            hass_.bus.async_fire(EVENT_PREFIX + "voice_to_text", payload)
+            return web.Response(status=200)
+        if kind == "call":
+            # Làm mới NGAY (không async_request_refresh: nó bị giãn cách 10 giây nên cảm biến «Trạng thái cuộc gọi» trễ 4–5 giây so với sự kiện). Cảm biến phải
+            # đã đúng TRƯỚC khi sự kiện bắn, vì automation bắt sự kiện rồi đọc cảm biến (nút R1 nghe máy).
+            await coordinator.async_refresh()
+            await _async_call_state(hass_, bridge, payload)
+            state = derive_state(payload)
+            if state is not None:
+                on_call_state(hass_, hass_.data[DOMAIN][entry.entry_id], state, payload.get("call_id"), TERMINAL_STATES, payload)
+        elif kind == "message":
+            hass_.async_create_task(async_handle_message(hass_, entry, payload))
+        return web.Response(status=200)
+
+    webhook.async_register(hass, DOMAIN, "Zalo Call", webhook_id, _handle,
+                           allowed_methods=["POST"])
+    entry.async_on_unload(lambda: webhook.async_unregister(hass, webhook_id))
+    hass.async_create_task(_async_push_webhooks(hass, defaults, api, webhook_id))
+    # Đổi ô «Địa chỉ HA» trên thiết bị: báo lại cho app địa chỉ webhook mới (không cần tải lại).
+    last_url = {"v": defaults.get(CONF_HA_URL)}
+
+    def _on_defaults_changed() -> None:
+        if defaults.get(CONF_HA_URL) != last_url["v"]:
+            last_url["v"] = defaults.get(CONF_HA_URL)
+            hass.async_create_task(_async_push_webhooks(hass, defaults, api, webhook_id))
+
+    entry.async_on_unload(defaults.add_listener(_on_defaults_changed))
+
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Đổi danh sách người/nhóm nhận (tuỳ chọn) thì tải lại để thêm/bớt thực thể notify.
+    entry.async_on_unload(entry.add_update_listener(_async_reload_on_options))
+    # Dua thiet bi mac dinh (da phan giai ra URL luong) cho app: WebUI hien thong nhat
+    # va cuoc goi nghe may ngoai HA / ben kia xin len video cung dung dung nguon.
+    hass.async_create_task(bridge.async_push_defaults())
+    return True
+
+
+async def _async_reload_on_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    if ok:
+        data = hass.data[DOMAIN].pop(entry.entry_id, None)
+        if data is not None:
+            data.voice.cancel_all()
+            await data.bridge.async_shutdown()
+    return ok
+
+
+async def _async_call_state(hass: HomeAssistant, bridge: CallAudioBridge,
+                            payload: dict) -> None:
+    """Su kien `zalo_call_call_state` cho automation + dieu khien cau noi am
+    thanh. state: incoming / ringing / answered / declined / no_answer /
+    missed / rejected / ended / error ("tu choi" va "khong nghe may" la
+    declined va no_answer — dung de lam tac vu khac sau do)."""
+    state = derive_state(payload)
+    if state is None:
+        return
+    call_id = payload.get("call_id")
+    devices: dict[str, str] = {}
+    if state == "answered":
+        devices = await bridge.start(call_id)
+    elif state in TERMINAL_STATES:
+        await bridge.stop(call_id)
+    event = {"state": state, "call_id": call_id,
+             "thread_id": payload.get("thread_id"), "peer": payload.get("peer"),
+             "call_type": payload.get("call_type"),
+             "end_reason": payload.get("end_reason", "")}
+    # Để automation «áp quy tắc» (apply_call_rule) tự lọc: người quen/lạ, thoại hay video, thẻ đã gắn cho người gọi.
+    tid = str(payload.get("thread_id") or "")
+    meta = (get_rules(bridge.defaults).get("contact_meta") or {}).get(tid) or {}
+    event.update({"contact_status": payload.get("contact_status") or "unknown",
+                  "video": str(payload.get("call_type_raw")) == "1" or str(payload.get("call_type")) == "video",
+                  "tags": list(meta.get("tags") or [])})
+    if devices:    # khong dua mic_url (co the chua mat khau) ra bus
+        event["speaker"] = devices.get("speaker", "")
+        event["camera"] = devices.get("camera", "")
+        event["mic"] = devices.get("mic", "") or (
+            "url" if devices.get("mic_url") else "")
+    hass.bus.async_fire(EVENT_STATE, event)
+
+
+def _stale_own_webhook(hass: HomeAssistant, old: str, url: str) -> bool:
+    """Webhook CŨ của app trỏ về chính HA này (cùng địa chỉ) nhưng id đã KHÔNG còn đăng ký (xoá rồi thêm lại tích hợp thì id đổi): HA trả 200 cho mọi id lạ nên app tưởng đã gửi được
+    trong khi không ai xử lý ⇒ không có sự kiện zalo_call_call_state, automation không chạy. Webhook của một thứ khác ĐANG đăng ký trên HA, hay của hệ thống khác, thì KHÔNG phải loại này."""
+    try:
+        o, n = urlsplit(old), urlsplit(url)
+    except ValueError:
+        return False
+    prefix = "/api/webhook/"
+    if o.netloc != n.netloc or not o.path.startswith(prefix):
+        return False
+    wid = o.path[len(prefix):].strip("/")
+    return bool(wid) and wid not in (hass.data.get(webhook.DOMAIN) or {})
+
+
+async def _async_push_webhooks(hass: HomeAssistant, defaults: DeviceDefaults,
+                               api: ZaloCallApi, webhook_id: str) -> None:
+    """Báo cho app địa chỉ webhook của HA (một URL chung cho cả 4 loại).
+
+    Không ghi đè webhook mà người dùng đã đặt sang chỗ khác: chỉ điền khi
+    ô còn trống hoặc đã là của chính tích hợp này.
+    """
+    base = defaults.get(CONF_HA_URL)
+    try:
+        base = base or get_url(hass, allow_external=False, allow_cloud=False)
+    except NoURLAvailableError:
+        _LOGGER.warning("Không xác định được địa chỉ nội bộ của HA; đặt "
+                        "ô «Địa chỉ HA» trên thiết bị Zalo Call để nhận sự kiện")
+        return
+    url = base.rstrip("/") + webhook.async_generate_path(webhook_id)
+    try:
+        current = await api.get_webhooks()
+        cfg = dict(current)
+        changed = False
+        for kind in WEBHOOK_KINDS:
+            key = kind + "_webhook_url"
+            old = current.get(key) or ""
+            if old and old != url:
+                if not _stale_own_webhook(hass, old, url):
+                    _LOGGER.warning("Webhook %s của app đang trỏ nơi khác, giữ "
+                                    "nguyên (không ghi đè)", kind)
+                    continue
+                _LOGGER.warning("Webhook %s của app trỏ tới một webhook của HA này nhưng đã không còn đăng ký (xoá/thêm lại tích hợp): đổi sang webhook hiện tại để "
+                                "sự kiện cuộc gọi tới được HA", kind)
+            if old != url:
+                cfg[key] = url
+                changed = True
+        if changed:
+            await api.set_webhooks(cfg)
+    except ZaloCallError as err:
+        _LOGGER.warning("Không đặt được webhook cho app: %s", err)

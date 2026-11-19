@@ -1,0 +1,474 @@
+"""Cầu nối thiết bị cuộc gọi giữa app Zalo và Home Assistant.
+
+- Loa: app phát WAV liên tục (GET /api/call/audio/out/<token>); ta bảo
+  `media_player.play_media` tới loa đã chọn nên thiết bị nào là media_player
+  cũng phát được.
+- Mic / camera: HA PHÂN GIẢI thực thể (camera, vệ tinh Assist của camera Imou
+  hay loa R1, hoặc URL) ra URL luồng rồi đưa cho app; app tự dùng ffmpeg đọc và
+  phát lên cuộc gọi (không bơm tiếng qua HA nữa). URL gửi kèm lời gọi
+  (make_call / answer_call) hoặc đẩy làm mặc định cho app.
+- Mặc định nằm ở các thực thể select/text/switch của tích hợp
+  (`devices.DeviceDefaults`); mỗi cuộc gọi ghi đè bằng trường của service.
+Không ghi URL mic/camera (có thể chứa mật khẩu) vào log hay sự kiện.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from typing import Any
+
+from homeassistant.components import camera as ha_camera
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.network import NoURLAvailableError, get_url
+
+from .api import ZaloCallApi, ZaloCallError
+from . import echo_policy
+from .bridge_core import (PushPolicy, audio_out_url, candidates, dahua_mic_url, device_of_url, dosen_mic_url, echo_guard_on, speaker_kind,
+                          entity_of_label, explicit_off, host_of, intercom_url,
+                          localize_url, mic_format_for_url, pick_devices, r1_mic_url,
+                          valid_url)
+from .const import CONF_CALL_VOLUME, CONF_HA_URL, MAX_CALL_VOLUME, TEST_SOURCE
+from .devices import DeviceDefaults
+
+_LOGGER = logging.getLogger(__name__)
+_PENDING_TTL = 120.0
+_PUSH_THIEU_TOI_DA = 30   # so lan thu lai (moi ~10 s, ~5 phut) khi thiet bi da chon chua phan giai duoc
+# Loa lam tron am luong theo nac cua no (R1 co 15 nac: dat 0,77 thi bao 0,80): lech it hon mot nac
+# thi coi la «chua ai chinh» va van tra lai muc cu. Do 10/11/2026: dung nguong 0,02 thi R1 khong duoc tra.
+_VOLUME_TOLERANCE = 0.07
+
+
+class _Running:
+    def __init__(self, devices: dict[str, str]) -> None:
+        self.devices = devices
+        self.speaker_started = False
+        self.volume_restore: tuple[str, float, float] | None = None   # (loa, muc cu, muc da dat)
+
+
+class CallAudioBridge:
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry,
+                 api: ZaloCallApi, defaults: DeviceDefaults) -> None:
+        self.hass, self.entry, self.api, self.defaults = hass, entry, api, defaults
+        self._pending: dict[str, tuple[float, dict]] = {}
+        self._running: dict[str, _Running] = {}
+        self.policy = PushPolicy()
+        self._pushing = False
+        self._push_thieu_lan = 0
+
+    # -- thiet bi cua mot cuoc goi -----------------------------------------
+    def remember(self, call_id: Any, override: dict[str, Any]) -> None:
+        """Thiet bi ghi de cho cuoc goi sap noi may. call_id None = cuoc goi
+        ke tiep (chua biet ma luc goi service)."""
+        self._pending[str(call_id) if call_id is not None else "*"] = (
+            time.monotonic(), dict(override))
+
+    def _take(self, call_id: Any) -> dict[str, Any] | None:
+        now = time.monotonic()
+        self._pending = {k: v for k, v in self._pending.items()
+                         if now - v[0] < _PENDING_TTL}
+        item = self._pending.pop(str(call_id), None) \
+            or self._pending.pop("*", None)
+        return item[1] if item else None
+
+    def devices_for(self, override: dict[str, Any] | None = None) -> dict[str, str]:
+        return pick_devices(self.defaults.data, override, alive=self._entity_alive)
+
+    def slot_candidates(self, override: dict[str, Any] | None = None) -> dict[str, list[str]]:
+        """Danh sách dự phòng CÒN HOẠT ĐỘNG, theo thứ tự ưu tiên, của loa / mic / camera cho một cuộc gọi (chỉ từ ghi đè của quy tắc, không có mặc định)."""
+        override = override or {}
+        out: dict[str, list[str]] = {}
+        for key in ("speaker", "mic", "camera"):
+            val = str(override[key]).strip() if key in override and override[key] is not None else ""
+            out[key] = [c for c in candidates(val) if self._entity_alive(entity_of_label(c))]
+        return out
+
+    def _entity_alive(self, entity_id: str) -> bool:
+        """Thiet bi du phong: con hoat dong khi thuc the ton tai va khong unavailable/unknown."""
+        st = self.hass.states.get(entity_id)
+        return st is not None and st.state not in ("unavailable", "unknown")
+
+    # -- phan giai thuc the -> URL luong -----------------------------------
+    def _ha_base(self) -> str:
+        base = self.defaults.get(CONF_HA_URL)
+        if base:
+            return str(base)
+        try:
+            return get_url(self.hass, allow_external=False, allow_cloud=False)
+        except NoURLAvailableError:
+            return ""
+
+    async def async_camera_url(self, entity_id: str) -> str:
+        """Stream cua mot camera HA (RTSP/go2rtc...), rong neu khong co."""
+        try:
+            url = await ha_camera.async_get_stream_source(self.hass, entity_id) or ""
+        except (HomeAssistantError, ValueError) as err:
+            _LOGGER.warning("Camera %s khong co stream: %s", entity_id, err)
+            return ""
+        # localhost cua HA khong dung duoc tu app: doi sang dia chi LAN cua may HA.
+        return localize_url(url, host_of(self._ha_base()))
+
+    async def async_mic_source(self, devices: dict[str, str]) -> tuple[str, str]:
+        """(url, dinh_dang) cua mic: mic_url thang thuc the `mic`."""
+        if devices.get("mic_url"):
+            url = localize_url(devices["mic_url"], host_of(self._ha_base()))
+            return (url, mic_format_for_url(url)) if valid_url(url) else ("", "auto")
+        entity_id = entity_of_label(devices.get("mic", ""))
+        if not entity_id:
+            return "", "auto"
+        domain = entity_id.split(".", 1)[0]
+        if domain == "camera":
+            url = await self.async_camera_url(entity_id)
+            return (url, "auto") if valid_url(url) else ("", "auto")
+        if domain == "assist_satellite":
+            url = await self._satellite_mic_url(entity_id)
+            return (url, mic_format_for_url(url)) if valid_url(url) else ("", "auto")
+        _LOGGER.warning("Khong lay duoc mic tu %s (chi ho tro camera, "
+                        "assist_satellite hoac URL)", entity_id)
+        return "", "auto"
+
+    async def _satellite_mic_url(self, entity_id: str) -> str:
+        """Mic cua mot vệ tinh Assist: loa R1 (luong PCM cua r1_speaker) hoac camera
+        Imou/Dahua (mic_url cua dahua_talk); dung dang ky thuc the de biet cua ai."""
+        ent = er.async_get(self.hass).async_get(entity_id)
+        cfg = self.hass.config_entries.async_get_entry(ent.config_entry_id) \
+            if ent and ent.config_entry_id else None
+        if cfg is None:
+            return ""
+        if cfg.domain == "dahua_talk":
+            return dahua_mic_url(cfg.options, cfg.data)
+        if cfg.domain == "dosen_pro":          # camera Dosen: mic la tieng trong luong RTSP cua chinh camera
+            return dosen_mic_url(cfg.data)
+        if cfg.domain == "r1_speaker":
+            key = str(cfg.data.get("intercom_key") or "")
+            base = self._ha_base()
+            if not key or not base:
+                _LOGGER.warning("Loa R1 %s chua co khoa mic hoac HA chua co dia chi noi bo",
+                                entity_id)
+                return ""
+            return r1_mic_url(base, cfg.entry_id, key)
+        return ""
+
+    async def async_speaker_sink(self, entity_id: str, mode: str = "auto") -> str:
+        """URL de app phat tieng thang vao loa (R1, camera Imou/Dahua), hoac "" (loa khac: dung
+        media_player.play_media). Mac dinh la «cua bo dam»; che do duplex + loa R1 -> phien song
+        cong cua R1. Khoa lay tu chinh tich hop cua loa."""
+        if not entity_id:
+            return ""
+        ent = er.async_get(self.hass).async_get(entity_id)
+        cfg = self.hass.config_entries.async_get_entry(ent.config_entry_id) \
+            if ent and ent.config_entry_id else None
+        if cfg is None or cfg.domain not in ("r1_speaker", "dahua_talk", "dosen_pro"):
+            return ""
+        key = str(cfg.data.get("intercom_key") or "")
+        base = self._ha_base()
+        if not key or not base:
+            _LOGGER.warning("Loa %s chua co khoa bo dam hoac HA chua co dia chi noi bo", entity_id)
+            return ""
+        kind = speaker_kind(mode, cfg.domain)
+        return intercom_url(base, cfg.domain, cfg.entry_id, key, kind)
+
+    def _same_device(self, speaker_id: str, mic_id: str, mic_url: str, sink_url: str) -> bool:
+        """Mic va loa co cung MOT thiet bi khong (de bat chong vong khi o che do tu dong)."""
+        a, b = device_of_url(sink_url), device_of_url(mic_url)
+        if a and b:
+            return a == b
+        if speaker_id and mic_id:
+            reg = er.async_get(self.hass)
+            s, m = reg.async_get(speaker_id), reg.async_get(mic_id)
+            if s and m and s.config_entry_id and s.config_entry_id == m.config_entry_id:
+                return True
+            return bool(s and m and s.device_id and s.device_id == m.device_id)
+        return False
+
+    async def async_resolve(self, devices: dict[str, str],
+                            echo_mode: str = "auto",
+                            slots: dict[str, list[str]] | None = None) -> dict[str, str]:
+        """Thiet bi -> truong gui cho app: mic_url, mic_format, camera_url, speaker_url,
+        echo_guard ("true"/"false") (rong = khong dung).
+
+        `slots` (xem slot_candidates): danh sach du phong con hoat dong. Thiet bi duoc chon ma KHONG co duong noi that (mic/camera khong lay
+        duoc luong, loa khong co cua bo dam: vi du loa Cast/Google Home chi phat TTS) thi thu thiet bi ke tiep trong danh sach."""
+        slots = slots or {}
+        mic_url, mic_fmt = await self.async_mic_source(devices)
+        mic_label = devices.get("mic", "")
+        if not mic_url and not devices.get("mic_url"):
+            for cand in slots.get("mic", []):
+                if entity_of_label(cand) == entity_of_label(mic_label):
+                    continue
+                url, fmt = await self.async_mic_source(dict(devices, mic=cand))
+                if url:
+                    _LOGGER.info("Mic %s khong dung duoc: chuyen sang mic du phong %s", mic_label, cand)
+                    mic_url, mic_fmt, mic_label = url, fmt, cand
+                    break
+        cam_id = entity_of_label(devices.get("camera", ""))
+        if cam_id == TEST_SOURCE:
+            cam_url = TEST_SOURCE                      # hình kiểm tra: app tự tạo, không cần camera nào
+        else:
+            cam_url = await self.async_camera_url(cam_id) if cam_id else ""
+            if cam_id and not cam_url:
+                for cand in slots.get("camera", []):
+                    if entity_of_label(cand) == cam_id:
+                        continue
+                    url = await self.async_camera_url(entity_of_label(cand))
+                    if url:
+                        _LOGGER.info("Camera %s khong co stream: chuyen sang camera du phong %s", cam_id, cand)
+                        cam_url = url
+                        break
+        spk_id = entity_of_label(devices.get("speaker", ""))
+        spk_url = await self.async_speaker_sink(spk_id, echo_mode)
+        if spk_id and not spk_url:
+            for cand in slots.get("speaker", []):
+                if entity_of_label(cand) == spk_id:
+                    continue
+                sink = await self.async_speaker_sink(entity_of_label(cand), echo_mode)
+                if sink:
+                    _LOGGER.info("Loa %s khong co cua bo dam: chuyen sang loa du phong %s", spk_id, cand)
+                    spk_id, spk_url = entity_of_label(cand), sink
+                    break
+        mic_id = entity_of_label(mic_label)
+        echo = echo_guard_on(echo_mode, self._same_device(spk_id, mic_id, mic_url, spk_url), spk_url) \
+            if spk_url else False
+        return {"mic_url": mic_url, "mic_format": mic_fmt, "camera_url": cam_url,
+                "speaker_url": spk_url, "echo_guard": "true" if echo else "false"}
+
+    # -- app -----------------------------------------------------------------
+    async def async_call_fields(self, override: dict[str, Any] | None, echo_mode: str | None = None) -> dict[str, str]:
+        """Truong thiet bi dinh kem make_call/answer_call (mic_url, mic_format, camera_url).
+
+        Khong ghi de: dung ban phan giai cua mac dinh. Ghi de co gia tri: dung gia
+        tri do. Ghi de RONG cho nhom do (mic / camera) va khong con nguon nao: gui
+        "off" de app TAT thiet bi do cho rieng cuoc goi nay."""
+        devices = self.devices_for(override)
+        # Chống vọng của QUY TẮC (echo_mode) thắng; auto/trống thì theo mặc định thiết bị (xem echo_policy.py).
+        res = await self.async_resolve(devices, echo_policy.effective(echo_mode, self.defaults.get("echo_guard")), self.slot_candidates(override))
+        out: dict[str, str] = {}
+        for field, keys in (("mic_url", ("mic", "mic_url")), ("camera_url", ("camera",)),
+                            ("speaker_url", ("speaker",))):
+            if res[field]:
+                out[field] = res[field]
+            elif explicit_off(override, keys, devices):
+                out[field] = "off"
+        if out.get("mic_url", "off") != "off":
+            out["mic_format"] = res["mic_format"]
+        if out.get("speaker_url", "off") != "off":
+            out["echo_guard"] = res["echo_guard"]
+        gains = {k: (override or {}).get(k) for k in ("mic_gain", "speaker_gain")}
+        # Loa R1 KHÔNG nghe lệnh chỉnh âm lượng của HA (Android ghim ở mức tối đa): «Âm lượng loa» của quy tắc phải thành độ to phần mềm thì mới có tác dụng.
+        # Mức tính theo tối đa của R1 (22% = bằng 22% biên độ gốc). `speaker_gain` ghi rõ của quy tắc thì thắng.
+        pct = self.volume_for(override)
+        if not gains["speaker_gain"] and pct > 0 and out.get("speaker_url", "off") != "off":
+            dev = device_of_url(out["speaker_url"])
+            if dev and dev[0] == "r1_speaker":
+                gains["speaker_gain"] = pct
+        for key, field in (("mic_gain", "mic_url"), ("speaker_gain", "speaker_url")):      # độ to phần mềm: chỉ kèm khi nhóm đó thật sự được nối
+            val = gains[key]
+            if val and out.get(field, "off") != "off":
+                out[key] = str(int(val))
+        return out
+
+    async def async_push_defaults(self) -> None:
+        """Dua mac dinh da phan giai cho app (WebUI hien thong nhat; cuoc goi nghe may
+        ngoai HA, hoac ben kia xin len video, cung dung dung nguon). Loi thi KHONG bo: coordinator
+        goi lai o lan hoi app thanh cong ke tiep (PushPolicy)."""
+        if self._pushing:
+            return
+        self._pushing = True
+        try:
+            await self._async_push()
+        finally:
+            self._pushing = False
+
+    async def _async_push(self) -> None:
+        devices = self.devices_for()
+        res = await self.async_resolve(devices, str(self.defaults.get("echo_guard") or "auto"), self.slot_candidates())
+        payload = {
+            "mic_url": res["mic_url"], "mic_format": res["mic_format"],
+            "camera_url": res["camera_url"], "speaker_url": res["speaker_url"],
+            "echo_guard": res["echo_guard"] == "true",
+            "auto_mic": bool(self.defaults.get("auto_mic")),
+            "auto_video_on_request": bool(self.defaults.get("auto_video")),
+            "auto_video_delay": int(self.defaults.get("auto_video_delay") or 0)}
+        # Thiet bi DA CHON nhung chua phan giai duoc (camera chua nap xong luc HA khoi dong: «Camera not found»):
+        # KHONG gui rong de ghi de gia tri dang dung cua app (do 10/11/2026: HA khoi dong lai lam camera mac dinh cua
+        # app ve trong). Bo truong do khoi goi (app giu gia tri cu) va danh dau chua xong de coordinator tu thu lai.
+        # Chi gui rong khi nguoi dung THAT SU bo chon (khong chon thiet bi nao).
+        cam_id = entity_of_label(devices.get("camera", ""))
+        mic_id = entity_of_label(devices.get("mic", ""))
+        thieu: list[str] = []
+        if cam_id and cam_id != TEST_SOURCE and not res["camera_url"]:
+            payload.pop("camera_url")
+            thieu.append("camera")
+        if not devices.get("mic_url") and mic_id.startswith("camera.") and not res["mic_url"]:
+            payload.pop("mic_url")
+            payload.pop("mic_format")
+            thieu.append("mic")
+        try:
+            await self.api.devices_set(payload)
+        except ZaloCallError as err:
+            self.policy.pushed(False)
+            _LOGGER.warning("Khong dua duoc thiet bi mac dinh cho app (se thu lai): %s", err)
+            return
+        self.hass.async_create_task(self.async_push_ha_devices())       # danh sách chọn cho WebUI «Thêm thiết bị»
+        if not thieu:
+            self._push_thieu_lan = 0
+            self.policy.pushed(True)
+            return
+        self._push_thieu_lan += 1
+        if self._push_thieu_lan >= _PUSH_THIEU_TOI_DA:
+            # Camera bi xoa han / khong bao gio co stream: thoi thu lai, nhung noi ro de nguoi dung sua.
+            _LOGGER.warning("Khong phan giai duoc %s da chon sau %d lan thu; giu gia tri cu cua app. Chon lai thiet bi "
+                            "hoac kiem tra thuc the.", ", ".join(thieu), self._push_thieu_lan)
+            self.policy.pushed(True)
+        else:
+            self.policy.pushed(False)
+
+    async def async_push_ha_devices(self) -> None:
+        """Đẩy xuống app DANH SÁCH thiết bị trong HA có đường nối thật (camera, vệ tinh Assist có mic, loa có cửa bộ đàm) cho bước «Thêm thiết bị» của WebUI: HA phân giải thực thể →
+        đường nối (app không biết HA); giao diện chỉ nhận id + tên. Thực thể không dựng được đường nối thì bỏ qua. Lỗi chỉ ghi nhật ký, không làm hỏng việc đẩy mặc định."""
+        mic: list[dict[str, str]] = []
+        speaker: list[dict[str, str]] = []
+        camera: list[dict[str, str]] = []
+        try:
+            for st in self.hass.states.async_all("camera"):
+                url = await self.async_camera_url(st.entity_id)
+                if url:
+                    item = {"id": st.entity_id, "name": st.name, "url": url, "format": "auto"}
+                    camera.append(item)
+                    mic.append(dict(item))                       # mic của camera: tiếng trong luồng RTSP của chính nó
+            for st in self.hass.states.async_all("assist_satellite"):
+                url = await self._satellite_mic_url(st.entity_id)
+                if url:
+                    mic.append({"id": st.entity_id, "name": st.name, "url": url, "format": mic_format_for_url(url)})
+            for st in self.hass.states.async_all("media_player"):
+                url = await self.async_speaker_sink(st.entity_id)
+                if url:
+                    speaker.append({"id": st.entity_id, "name": st.name, "url": url, "format": "auto"})
+            await self.api.ha_devices_set({"mic": mic, "speaker": speaker, "camera": camera})
+        except (ZaloCallError, HomeAssistantError, ValueError) as err:
+            _LOGGER.debug("Khong dua duoc danh sach thiet bi HA cho WebUI: %s", err)
+
+    # -- loa -----------------------------------------------------------------
+    def has_devices(self, call_id: Any) -> bool:
+        """HA đã tự nối thiết bị nhà cho cuộc gọi này chưa (dịch vụ make_call/answer_call với thiết bị, hoặc quy tắc nghe máy)."""
+        run = self._running.get(str(call_id))
+        return bool(run is not None and any(run.devices.values()))
+
+    async def start(self, call_id: Any) -> dict[str, str]:
+        key = str(call_id)
+        if key in self._running:
+            return self._running[key].devices
+        override = self._take(call_id)
+        devices = self.devices_for(override)
+        run = _Running(devices)
+        self._running[key] = run
+        speaker = entity_of_label(devices["speaker"])
+        if not speaker:
+            return devices
+        await self._async_set_volume(run, speaker, self.volume_for(override))
+        if await self.async_speaker_sink(speaker, str(self.defaults.get("echo_guard") or "auto")):
+            return devices          # loa truc tiep: app tu day tieng vao bo dam, khong qua play_media
+        try:
+            media = await self.api.call_media_status(call_id)
+        except ZaloCallError as err:
+            _LOGGER.warning("Khong lay duoc media cuoc goi %s: %s", key, err)
+            return devices
+        token = (media or {}).get("audio_token")
+        if not token:
+            _LOGGER.warning("Cuoc goi %s chua co media (chua noi may?)", key)
+            return devices
+        await self.hass.services.async_call(
+            "media_player", "play_media",
+            {"entity_id": speaker,
+             "media_content_id": audio_out_url(self.api.url, token),
+             "media_content_type": "audio/wav"}, blocking=False)
+        run.speaker_started = True
+        return devices
+
+    async def reconnect(self, call_id: Any, override: dict[str, Any]) -> dict[str, str]:
+        """Nối (lại) thiết bị cho cuộc gọi ĐANG nói bằng bộ ghi đè mới: dùng khi cuộc gọi do AI/cảnh báo giữ (lúc nghe máy mọi thiết bị
+        tắt) rồi chuyển trực tiếp. Khác `start`: không bỏ qua khi cuộc gọi đã có lượt chạy trước đó."""
+        key = str(call_id)
+        old = self._running.pop(key, None)
+        if old is not None and old.speaker_started:
+            await self.stop_run(old)
+        self.remember(call_id, override)
+        return await self.start(call_id)
+
+    async def stop_run(self, run: "_Running") -> None:
+        try:
+            await self.hass.services.async_call("media_player", "media_stop", {"entity_id": entity_of_label(run.devices["speaker"])},
+                                                blocking=False)
+        except HomeAssistantError as err:
+            _LOGGER.debug("Khong dung duoc loa: %s", err)
+        await self._async_restore_volume(run)
+
+    async def stop(self, call_id: Any) -> None:
+        run = self._running.pop(str(call_id), None)
+        if run is None:
+            return
+        if run.speaker_started:
+            try:
+                await self.hass.services.async_call(
+                    "media_player", "media_stop",
+                    {"entity_id": entity_of_label(run.devices["speaker"])},
+                    blocking=False)
+            except HomeAssistantError as err:
+                _LOGGER.debug("Khong dung duoc loa: %s", err)
+        await self._async_restore_volume(run)
+
+    def volume_for(self, override: dict[str, Any] | None) -> int:
+        """% am luong loa cho cuoc goi: ghi de cua service > mac dinh; 0 = khong dong vao."""
+        raw = (override or {}).get("volume")
+        if raw is None:
+            raw = self.defaults.get(CONF_CALL_VOLUME)
+        try:
+            return max(0, min(MAX_CALL_VOLUME, int(raw)))
+        except (TypeError, ValueError):
+            return 0
+
+    async def _async_set_volume(self, run: _Running, speaker: str, percent: int) -> None:
+        """Dat am luong loa luc nghe may, nho muc cu de tra lai khi cuoc goi ket thuc."""
+        if percent <= 0:
+            return
+        state = self.hass.states.get(speaker)
+        try:
+            old = float(state.attributes.get("volume_level")) if state else None
+        except (TypeError, ValueError):
+            old = None
+        target = round(percent / 100, 2)
+        try:
+            await self.hass.services.async_call(
+                "media_player", "volume_set",
+                {"entity_id": speaker, "volume_level": target}, blocking=True)
+        except HomeAssistantError as err:
+            _LOGGER.warning("Khong dat duoc am luong %s%% cho loa %s: %s", percent, speaker, err)
+            return
+        if old is not None:
+            run.volume_restore = (speaker, old, target)
+
+    async def _async_restore_volume(self, run: _Running) -> None:
+        """Tra am luong cu cua loa, tru khi nguoi dung da tu chinh trong luc goi."""
+        restore, run.volume_restore = run.volume_restore, None
+        if restore is None:
+            return
+        speaker, old, target = restore
+        state = self.hass.states.get(speaker)
+        try:
+            now = float(state.attributes.get("volume_level")) if state else None
+        except (TypeError, ValueError):
+            now = None
+        if now is not None and abs(now - target) > _VOLUME_TOLERANCE:
+            return
+        try:
+            await self.hass.services.async_call(
+                "media_player", "volume_set",
+                {"entity_id": speaker, "volume_level": old}, blocking=True)
+        except HomeAssistantError as err:
+            _LOGGER.debug("Khong tra duoc am luong loa %s: %s", speaker, err)
+
+    async def async_shutdown(self) -> None:
+        for key in list(self._running):
+            await self.stop(key)
