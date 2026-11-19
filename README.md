@@ -55,3 +55,9 @@ Blueprint mẫu ở kho [Blueprint](https://github.com/TriTue2011/Blueprint) c�
 ## Báo lỗi
 
 [Issues](https://github.com/TriTue2011/zalo_call/issues). Khi báo lỗi kèm phiên bản tích hợp, phiên bản máy chủ và đoạn nhật ký (che mật khẩu/token).
+
+## Giấy phép
+
+Phần tích hợp Home Assistant trong kho này (`custom_components/zalo_call`) phát hành theo **GNU AGPL-3.0** (xem [LICENSE](LICENSE)). Bản quyền © 2026 TriTue2011.
+Ai sửa và phân phối, hoặc cho người khác dùng qua mạng, phải công khai mã đã sửa theo cùng giấy phép.
+**Máy chủ Zalo Call** (app đăng nhập QR, gọi thoại/video) là phần mềm riêng, không thuộc giấy phép này.
