@@ -258,10 +258,17 @@ def rule_devices(rule: dict[str, Any]) -> dict[str, Any]:
 
 
 def rule_devices_now(rule: dict[str, Any]) -> dict[str, Any]:
-    """Thiết bị quy tắc nối NGAY khi nghe máy (ô `connect_now`), lọc từ các thiết bị đã chọn trong quy tắc."""
+    """Thiết bị quy tắc nối NGAY khi nghe máy (ô `connect_now`), lọc từ các thiết bị đã chọn trong quy tắc.
+
+    Quy tắc có AI giữ máy: mic và loa KHÔNG nối ngay dù ô `connect_now` có chọn — đường tiếng của cuộc gọi chỉ có một, mic nhà nối vào thì tiếng AI
+    (TTS) bị thay và AI không nghe được người gọi (đo 20/11 08:27: blueprint đặt mic/loa «Bật NGAY» + «Cho AI nói chuyện» → nối thẳng R1, AI im).
+    Mic/loa vẫn nối lúc chuyển máy (ô `connect`); camera nối ngay vẫn được (không tranh đường tiếng)."""
     src: dict[str, Any] = {k: rule[k] for k in _DEVICE_KEYS if rule.get(k)}
     src.update({k: rule[k] for k in ("volume", "mic_gain", "speaker_gain") if src and rule.get(k)})
-    return devices_for_mode(src, rule.get("connect_now"))
+    parts = parse_connect(rule.get("connect_now"))
+    if rule.get("ai"):
+        parts = [p for p in parts if p not in ("mic", "speaker")]
+    return devices_for_mode(src, parts)
 
 
 def explicit_devices(connect: dict[str, Any]) -> dict[str, Any]:
