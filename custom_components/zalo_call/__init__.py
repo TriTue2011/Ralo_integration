@@ -37,6 +37,7 @@ from .devices import DeviceDefaults
 from .rules import get_rules
 from .llm_api import async_register_llm_api
 from .const import (
+    CONF_ACCOUNT,
     CONF_HA_URL,
     CONF_PASSWORD,
     CONF_URL,
@@ -131,7 +132,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     session = async_create_clientsession(
         hass, cookie_jar=aiohttp.CookieJar(unsafe=True))
     api = ZaloCallApi(session, entry.data[CONF_URL], entry.data[CONF_USERNAME],
-                      entry.data[CONF_PASSWORD])
+                      entry.data[CONF_PASSWORD], account=entry.data.get(CONF_ACCOUNT))
     try:
         await api.login()
     except ZaloCallAuthError as err:
@@ -157,6 +158,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             return web.Response(status=400)
         if not isinstance(payload, dict):
             return web.Response(status=400)
+        # Nhiều tài khoản Zalo = nhiều mục cấu hình: mọi sự kiện mang entry_id + account để automation lọc đúng tài khoản.
+        payload = {**payload, "entry_id": entry.entry_id, "account": entry.data.get(CONF_ACCOUNT) or ""}
         kind = str(payload.get("event") or "")
         if kind in WEBHOOK_KINDS:
             hass_.bus.async_fire(EVENT_PREFIX + kind, payload)
@@ -231,6 +234,7 @@ async def _async_call_state(hass: HomeAssistant, bridge: CallAudioBridge,
     event = {"state": state, "call_id": call_id,
              "thread_id": payload.get("thread_id"), "peer": payload.get("peer"),
              "call_type": payload.get("call_type"),
+             "entry_id": payload.get("entry_id", ""), "account": payload.get("account", ""),
              "end_reason": payload.get("end_reason", "")}
     # Để automation «áp quy tắc» (apply_call_rule) tự lọc: người quen/lạ, thoại hay video, thẻ đã gắn cho người gọi.
     tid = str(payload.get("thread_id") or "")

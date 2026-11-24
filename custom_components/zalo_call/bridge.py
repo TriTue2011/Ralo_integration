@@ -19,9 +19,11 @@ from typing import Any
 
 from homeassistant.components import camera as ha_camera
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.const import EVENT_STATE_CHANGED
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.debounce import Debouncer
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
 from .api import ZaloCallApi, ZaloCallError
@@ -40,6 +42,16 @@ _PUSH_THIEU_TOI_DA = 30   # so lan thu lai (moi ~10 s, ~5 phut) khi thiet bi da 
 # thi coi la «chua ai chinh» va van tra lai muc cu. Do 10/11/2026: dung nguong 0,02 thi R1 khong duoc tra.
 _VOLUME_TOLERANCE = 0.07
 
+# Danh mục thiết bị đẩy cho WebUI phải SỐNG: thiết bị unavailable/unknown bị bỏ, và khi một thiết bị chuyển giữa «dùng được» ↔ «không dùng được» thì đẩy lại
+# (chỉ theo SỰ KIỆN, không có vòng lặp nền; đổi trạng thái kiểu idle↔playing bị bỏ qua ngay ở bộ lọc sự kiện).
+_CATALOG_DOMAINS = ("camera", "assist_satellite", "media_player")
+_CATALOG_DEBOUNCE_S = 8.0
+
+
+def _gone(state: Any) -> bool:
+    """Thực thể không dùng được: không tồn tại, unavailable hoặc unknown."""
+    return state is None or state.state in ("unavailable", "unknown")
+
 
 class _Running:
     def __init__(self, devices: dict[str, str]) -> None:
@@ -57,6 +69,37 @@ class CallAudioBridge:
         self.policy = PushPolicy()
         self._pushing = False
         self._push_thieu_lan = 0
+        self._unsub_watch: Any = None
+        self._watch_debouncer: Debouncer | None = None
+
+    # -- theo dõi khả dụng của thiết bị trong danh mục (theo sự kiện, có gộp lần) ---------------------------------------------------------------
+    @callback
+    def _availability_flipped(self, data: Any) -> bool:
+        """Bộ lọc sự kiện (chạy đồng bộ, rẻ): chỉ giữ thực thể thuộc 3 domain của danh mục VÀ khả dụng đã đổi."""
+        entity_id = str(data.get("entity_id", ""))
+        if entity_id.partition(".")[0] not in _CATALOG_DOMAINS:
+            return False
+        return _gone(data.get("old_state")) != _gone(data.get("new_state"))
+
+    def async_watch_devices(self, debounce_s: float = _CATALOG_DEBOUNCE_S) -> None:
+        """Bắt đầu nghe thay đổi khả dụng (idempotent). Gọi lại với debounce_s khác = đặt lại."""
+        self.async_unwatch_devices()
+        self._watch_debouncer = Debouncer(self.hass, _LOGGER, cooldown=debounce_s, immediate=False, function=self.async_push_ha_devices)
+        debouncer = self._watch_debouncer
+
+        @callback
+        def _on_flip(_event: Any) -> None:
+            self.hass.async_create_task(debouncer.async_call())
+
+        self._unsub_watch = self.hass.bus.async_listen(EVENT_STATE_CHANGED, _on_flip, event_filter=self._availability_flipped)
+
+    def async_unwatch_devices(self) -> None:
+        if self._unsub_watch is not None:
+            self._unsub_watch()
+            self._unsub_watch = None
+        if self._watch_debouncer is not None:
+            self._watch_debouncer.async_shutdown()
+            self._watch_debouncer = None
 
     # -- thiet bi cua mot cuoc goi -----------------------------------------
     def remember(self, call_id: Any, override: dict[str, Any]) -> None:
@@ -312,6 +355,8 @@ class CallAudioBridge:
             _LOGGER.warning("Khong dua duoc thiet bi mac dinh cho app (se thu lai): %s", err)
             return
         self.hass.async_create_task(self.async_push_ha_devices())       # danh sách chọn cho WebUI «Thêm thiết bị»
+        if self._unsub_watch is None:
+            self.async_watch_devices()                                   # từ đây thiết bị hỏng/sống lại tự làm mới danh sách (theo sự kiện)
         if not thieu:
             self._push_thieu_lan = 0
             self.policy.pushed(True)
@@ -333,16 +378,22 @@ class CallAudioBridge:
         camera: list[dict[str, str]] = []
         try:
             for st in self.hass.states.async_all("camera"):
+                if _gone(st):
+                    continue                                     # camera unavailable/unknown: không đưa vào danh mục (khỏi dựng URL vô ích)
                 url = await self.async_camera_url(st.entity_id)
                 if url:
                     item = {"id": st.entity_id, "name": st.name, "url": url, "format": "auto"}
                     camera.append(item)
                     mic.append(dict(item))                       # mic của camera: tiếng trong luồng RTSP của chính nó
             for st in self.hass.states.async_all("assist_satellite"):
+                if _gone(st):
+                    continue
                 url = await self._satellite_mic_url(st.entity_id)
                 if url:
                     mic.append({"id": st.entity_id, "name": st.name, "url": url, "format": mic_format_for_url(url)})
             for st in self.hass.states.async_all("media_player"):
+                if _gone(st):
+                    continue
                 url = await self.async_speaker_sink(st.entity_id)
                 if url:
                     speaker.append({"id": st.entity_id, "name": st.name, "url": url, "format": "auto"})
@@ -470,5 +521,6 @@ class CallAudioBridge:
             _LOGGER.debug("Khong tra duoc am luong loa %s: %s", speaker, err)
 
     async def async_shutdown(self) -> None:
+        self.async_unwatch_devices()
         for key in list(self._running):
             await self.stop(key)

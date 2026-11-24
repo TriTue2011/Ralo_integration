@@ -25,6 +25,13 @@
           "username": "Username",
           "password": "Password"
         }
+      },
+      "account": {
+        "title": "Choose the Zalo account",
+        "description": "The server has several Zalo accounts. Each config entry controls one account; add another entry for another account.",
+        "data": {
+          "account": "Zalo account"
+        }
       }
     },
     "error": {

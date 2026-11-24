@@ -6,6 +6,8 @@ CONF_URL = "url"
 CONF_USERNAME = "username"
 CONF_PASSWORD = "password"
 CONF_WEBHOOK_ID = "webhook_id"
+CONF_ACCOUNT = "account"          # mã (uid) tài khoản Zalo mà MỤC này điều khiển; thiếu = tài khoản mặc định của máy chủ (mục cũ)
+CONF_ACCOUNT_NAME = "account_name"  # tên hiển thị (nhãn/số điện thoại) để đặt tên thiết bị
 
 # Tuy chon (options flow)
 CONF_HA_URL = "ha_url"            # dia chi HA ma app 110 goi duoc (webhook)

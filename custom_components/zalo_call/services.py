@@ -51,7 +51,7 @@ _APP_AUDIO_KEYS = ("mic_gain", "speaker_gain", "echo_delay_min_ms", "echo_delay_
 
 def _api(hass: HomeAssistant, call: ServiceCall) -> tuple[Any, ZaloCallApi]:
     runtimes = hass.data.get(DOMAIN, {})
-    wanted = call.data.get("entry_id")
+    wanted = call.data.get("entry_id") or None      # blueprint truyền chuỗi rỗng khi không chọn tài khoản = mục đầu tiên (như trước)
     for eid, rt in runtimes.items():
         if hasattr(rt, "api") and (wanted is None or wanted == eid):
             return rt, rt.api
@@ -792,7 +792,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
             raise ServiceValidationError("Zalo đang đăng nhập. Hãy đăng xuất trước (dịch vụ zalo_call.logout), hoặc đặt force: true để đăng nhập lại.")
         try:
             await api.qr_new(client)
-            await _refresh_qr_entity(call.data.get("entry_id"))
+            await _refresh_qr_entity(call.data.get("entry_id") or None)
             await rt.coordinator.async_request_refresh()
             status = await api.qr_status()
         except ZaloCallError as err:
@@ -804,7 +804,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         rt, api = _api(hass, call)
         try:
             await api.zalo_logout()
-            await _refresh_qr_entity(call.data.get("entry_id"))
+            await _refresh_qr_entity(call.data.get("entry_id") or None)
             await rt.coordinator.async_request_refresh()
         except ZaloCallError as err:
             raise HomeAssistantError(str(err)) from err
@@ -812,7 +812,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
 
     def _entry_and_api(call: ServiceCall):
         """(entry_id, runtime, api) của tích hợp được chọn (hoặc cái đầu tiên)."""
-        wanted = call.data.get("entry_id")
+        wanted = call.data.get("entry_id") or None      # blueprint truyền chuỗi rỗng khi không chọn tài khoản = mục đầu tiên (như trước)
         for eid, rt in hass.data.get(DOMAIN, {}).items():
             if hasattr(rt, "api") and (wanted is None or wanted == eid):
                 return eid, rt, rt.api

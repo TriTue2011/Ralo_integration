@@ -10,7 +10,8 @@ from .const import DOMAIN
 
 def device_info(entry: ConfigEntry) -> DeviceInfo:
     return DeviceInfo(identifiers={(DOMAIN, entry.entry_id)},
-                      name="Zalo Call", manufacturer="TriTue2011",
+                      name="Zalo Call" + (" · %s" % entry.data["account_name"] if entry.data.get("account_name") else ""),
+                      manufacturer="TriTue2011",
                       model="Zalo PC app")
 
 

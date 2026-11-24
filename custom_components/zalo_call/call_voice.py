@@ -676,8 +676,13 @@ async def _run_plan(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> N
     api: ZaloCallApi = rt.api
     try:
         if plan.connect_now.get("camera") and not plan.video:       # nối cam ngay mà cuộc gọi đang là thoại: nâng lên video luôn
-            cam = await rt.bridge.async_call_fields({"camera": plan.connect_now["camera"]})
-            await api.upgrade_video({"call_id": call_id, **({"camera_url": cam["camera_url"]} if cam.get("camera_url") else {})})
+            try:
+                cam = await rt.bridge.async_call_fields({"camera": plan.connect_now["camera"]})
+                await api.upgrade_video({"call_id": call_id, **({"camera_url": cam["camera_url"]} if cam.get("camera_url") else {})})
+            except ZaloCallError as err:
+                # Zalo từ chối nâng lên video (đo thật 24/11: -100 loi_tin_hieu_zalo trên cuộc THOẠI đến). Cuộc gọi vẫn là thoại: KHÔNG được bỏ cả kế hoạch
+                # (trước đây ngoại lệ này thoát khỏi _run_plan ⇒ AI/lời chào không bao giờ chạy trên cuộc thoại, chỉ video mới có AI).
+                _LOGGER.warning("Cuộc gọi %s: không nâng lên video được (%s), tiếp tục như cuộc thoại", call_id, err)
         engine, language, options = plan.engine, plan.language, None
         if plan.pipeline_id and not engine:            # đã chọn thiết bị Assist/pipeline: đọc thông báo bằng đúng giọng của nó
             engine, tts_lang, options = pipeline_tts(hass, plan.pipeline_id)

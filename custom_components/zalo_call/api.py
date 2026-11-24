@@ -27,8 +27,10 @@ class ZaloCallAuthError(ZaloCallError):
 
 class ZaloCallApi:
     def __init__(self, session: aiohttp.ClientSession, url: str,
-                 username: str, password: str) -> None:
+                 username: str, password: str, account: str | None = None) -> None:
         self._s = session
+        # Máy chủ app chạy được NHIỀU tài khoản Zalo; mọi lời gọi theo tài khoản mang `?account=<uid>` (đường nào không theo tài khoản thì máy chủ bỏ qua).
+        self.account = account or None
         self.url = url.rstrip("/")
         self._user = username
         self._pw = password
@@ -54,6 +56,8 @@ class ZaloCallApi:
 
     async def _request(self, method: str, path: str, *, retry: bool = True,
                        timeout: aiohttp.ClientTimeout = TIMEOUT, **kw: Any) -> Any:
+        if self.account:
+            kw["params"] = {**(kw.get("params") or {}), "account": self.account}
         try:
             async with self._s.request(method, self.url + path,
                                        timeout=timeout, **kw) as r:
@@ -72,6 +76,11 @@ class ZaloCallApi:
                 return data
         except (aiohttp.ClientError, asyncio.TimeoutError) as err:
             raise ZaloCallError("Không gọi được tới app: %s" % err) from err
+
+    # -- tai khoan Zalo tren may chu (khong gioi han boi `account`) --------------
+    async def accounts(self) -> dict:
+        """GET /api/accounts: {accounts:[{uid, phonenum, login, label, default}], default}."""
+        return await self._request("GET", "/api/accounts")
 
     # -- trang thai ---------------------------------------------------------
     async def status(self) -> dict:

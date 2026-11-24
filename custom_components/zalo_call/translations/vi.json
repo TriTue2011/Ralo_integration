@@ -25,6 +25,13 @@
           "username": "Tên đăng nhập",
           "password": "Mật khẩu"
         }
+      },
+      "account": {
+        "title": "Chọn tài khoản Zalo",
+        "description": "Máy chủ có nhiều tài khoản Zalo. Mỗi mục cấu hình điều khiển một tài khoản; thêm mục nữa cho tài khoản khác.",
+        "data": {
+          "account": "Tài khoản Zalo"
+        }
       }
     },
     "error": {

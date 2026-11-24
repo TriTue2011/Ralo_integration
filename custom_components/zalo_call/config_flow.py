@@ -19,6 +19,8 @@ from homeassistant.helpers.aiohttp_client import async_create_clientsession
 
 from .api import ZaloCallApi, ZaloCallAuthError, ZaloCallError
 from .const import (
+    CONF_ACCOUNT,
+    CONF_ACCOUNT_NAME,
     CONF_PASSWORD,
     CONF_URL,
     CONF_USERNAME,
@@ -36,16 +38,30 @@ def _normalize_url(raw: str) -> str:
 
 async def _async_check(hass, url: str, username: str, password: str) -> str | None:
     """Thử đăng nhập app. None = được; ngược lại là khoá lỗi của form."""
+    return (await _async_probe(hass, url, username, password))[0]
+
+
+async def _async_probe(hass, url: str, username: str, password: str) -> tuple[str | None, list[dict]]:
+    """Đăng nhập app và liệt kê các tài khoản Zalo trên máy chủ. (khoá lỗi | None, danh sách tài khoản)."""
     session = async_create_clientsession(hass, cookie_jar=aiohttp.CookieJar(unsafe=True))
     api = ZaloCallApi(session, url, username, password)
     try:
         await api.login()
         await api.status()
     except ZaloCallAuthError:
-        return "invalid_auth"
+        return "invalid_auth", []
     except ZaloCallError:
-        return "cannot_connect"
-    return None
+        return "cannot_connect", []
+    try:
+        accounts = [a for a in (await api.accounts()).get("accounts", []) if a.get("uid")]
+    except ZaloCallError:
+        accounts = []          # máy chủ cũ chưa có /api/accounts: một tài khoản mặc định
+    return None, accounts
+
+
+def _account_label(acc: dict) -> str:
+    name = acc.get("label") or acc.get("phonenum") or acc["uid"]
+    return "%s (%s)" % (name, acc["uid"]) if name != acc["uid"] else str(name)
 
 
 class ZaloCallConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -61,19 +77,19 @@ class ZaloCallConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             url = _normalize_url(user_input[CONF_URL])
-            err = await _async_check(self.hass, url, user_input[CONF_USERNAME],
-                                     user_input[CONF_PASSWORD])
+            err, accounts = await _async_probe(self.hass, url, user_input[CONF_USERNAME], user_input[CONF_PASSWORD])
             if err:
                 errors["base"] = err
             else:
+                self._creds = {CONF_URL: url, CONF_USERNAME: user_input[CONF_USERNAME],
+                               CONF_PASSWORD: user_input[CONF_PASSWORD]}
+                self._accounts = accounts
+                if len(accounts) > 1:
+                    return await self.async_step_account()
+                # Một tài khoản (hoặc máy chủ cũ): giữ hành vi cũ — mục theo URL, tài khoản mặc định.
                 await self.async_set_unique_id(url)
                 self._abort_if_unique_id_configured()
-                return self.async_create_entry(
-                    title="Zalo Call (%s)" % url.split("//", 1)[-1],
-                    data={CONF_URL: url,
-                          CONF_USERNAME: user_input[CONF_USERNAME],
-                          CONF_PASSWORD: user_input[CONF_PASSWORD],
-                          CONF_WEBHOOK_ID: webhook.async_generate_id()})
+                return self._create(url, None, None)
         schema = vol.Schema({
             vol.Required(CONF_URL, default="http://homeassistant.local:8080"): str,
             vol.Required(CONF_USERNAME): str,
@@ -82,6 +98,34 @@ class ZaloCallConfigFlow(ConfigFlow, domain=DOMAIN):
         })
         return self.async_show_form(step_id="user", data_schema=schema,
                                     errors=errors)
+
+    async def async_step_account(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Máy chủ có nhiều tài khoản Zalo: mỗi mục cấu hình điều khiển ĐÚNG MỘT tài khoản (thêm mục nữa cho tài khoản khác)."""
+        url = self._creds[CONF_URL]
+        taken = {e.data.get(CONF_ACCOUNT) for e in self._async_current_entries()
+                 if e.data.get(CONF_URL) == url and e.data.get(CONF_ACCOUNT)}
+        legacy = any(e.data.get(CONF_URL) == url and not e.data.get(CONF_ACCOUNT) for e in self._async_current_entries())
+        default = next((a["uid"] for a in self._accounts if a.get("default")), None)
+        free = {a["uid"]: _account_label(a) for a in self._accounts
+                if a["uid"] not in taken and not (legacy and a["uid"] == default)}   # mục cũ (không ghi tài khoản) đã giữ tài khoản mặc định
+        if not free:
+            return self.async_abort(reason="already_configured")
+        if user_input is not None:
+            uid = user_input[CONF_ACCOUNT]
+            await self.async_set_unique_id("%s|%s" % (url, uid))
+            self._abort_if_unique_id_configured()
+            return self._create(url, uid, free.get(uid))
+        return self.async_show_form(step_id="account", data_schema=vol.Schema({
+            vol.Required(CONF_ACCOUNT): vol.In(free)}))
+
+    def _create(self, url: str, uid: str | None, label: str | None) -> ConfigFlowResult:
+        data = dict(self._creds, **{CONF_WEBHOOK_ID: webhook.async_generate_id()})
+        title = "Zalo Call (%s)" % url.split("//", 1)[-1]
+        if uid:
+            data[CONF_ACCOUNT] = uid
+            data[CONF_ACCOUNT_NAME] = label or uid
+            title = "Zalo Call · %s" % (label or uid)
+        return self.async_create_entry(title=title, data=data)
 
     # -- Sai mật khẩu app (ví dụ vừa đổi trong WebUI): hỏi lại mật khẩu, không phải xoá/thêm lại --
     async def async_step_reauth(self, entry_data: dict[str, Any]) -> ConfigFlowResult:
