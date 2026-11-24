@@ -1,5 +1,21 @@
 # 📞 Zalo Call — tích hợp Home Assistant
 
+> **⚠️ MIỄN TRỪ TRÁCH NHIỆM — ĐỌC TRƯỚC KHI DÙNG**
+>
+> Kho này **chỉ phục vụ mục đích học tập và nghiên cứu cá nhân, phi thương mại**. Đây là dự án **không chính thức, không
+> liên kết, không được Zalo / VNG tài trợ hay xác nhận** dưới bất kỳ hình thức nào.
+>
+> Khi tải, dựng hoặc sử dụng mã nguồn trong kho này, **người dùng tự chịu trách nhiệm** tuân thủ **Điều khoản dịch vụ của
+> Zalo** (zalo.vn) và **pháp luật hiện hành tại nơi cư trú**. Điều khoản dịch vụ của Zalo, mục *Hành vi vi phạm*, cấm người
+> dùng (không giới hạn): sao chép/sửa đổi/tạo bản phái sinh của Dịch Vụ khi chưa được đồng ý; thiết kế lại, biên dịch,
+> tháo gỡ, đảo ngược thiết kế Dịch Vụ; can thiệp, thay đổi, làm gián đoạn cơ chế hoạt động nguyên bản của Dịch Vụ. **Việc
+> dùng kho này để làm những việc Điều khoản dịch vụ của Zalo cấm là lựa chọn và rủi ro của riêng người dùng** — tác giả
+> không khuyến khích, không chịu trách nhiệm cho hậu quả đó.
+>
+> Tác giả **không chịu trách nhiệm** với bất kỳ thiệt hại, tranh chấp, hay hậu quả pháp lý nào phát sinh từ việc bên thứ ba
+> tải về, sửa đổi, triển khai hoặc dùng mã nguồn này sai mục đích, kể cả khi dùng để vi phạm Điều khoản dịch vụ của Zalo
+> hoặc pháp luật. Kho này được cung cấp **"nguyên trạng" (as-is)**, không bảo đảm dưới bất kỳ hình thức nào.
+
 Gọi **thoại và video Zalo** từ Home Assistant: điện thoại đổ chuông, nghe máy xong tiếng bên kia ra **loa trong nhà**
 (R1, loa camera, `media_player`), mic loa/camera gửi sang điện thoại, video phát hình từ **camera nhà**. Nhắn tin, gửi ảnh/tệp/ghi âm,
 quy tắc trả lời tự động, blueprint.
