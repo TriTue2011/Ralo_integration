@@ -1,5 +1,10 @@
 # 🏠 Ralo (Zalo Call) — tích hợp Home Assistant
 
+> **Đổi tên 28/11/2026 (bản 2026.11.28.1):** tích hợp đổi từ `zalo_call` sang **`ralo`** — thư mục `custom_components/ralo`, dịch vụ `ralo.*`,
+> sự kiện `ralo_*`, thực thể `<miền>.ralo_…`, blueprint `ralo_*.yaml`. Cập nhật từ bản cũ: mục cấu hình `zalo_call` cũ **không tự chuyển** —
+> thêm lại tích hợp Ralo (hoặc chuyển sổ đăng ký `.storage` khi HA dừng), rồi sửa automation dùng `zalo_call.` sang `ralo.`.
+
+
 > **⚠️ MIỄN TRỪ TRÁCH NHIỆM — ĐỌC TRƯỚC KHI DÙNG**
 >
 > Kho này **chỉ phục vụ mục đích học tập và nghiên cứu cá nhân, phi thương mại**. Đây là dự án **không chính thức, không
@@ -22,7 +27,7 @@ quy tắc trả lời tự động, blueprint.
 
 > ⚠️ App không chính thức, đăng nhập Zalo bằng mã QR. **Dùng tài khoản Zalo phụ.**
 
-Kho này chỉ chứa **phần tích hợp Home Assistant** (`custom_components/zalo_call`), cài được bằng HACS. Tích hợp cần **máy chủ Zalo Call**
+Kho này chỉ chứa **phần tích hợp Home Assistant** (`custom_components/ralo`), cài được bằng HACS. Tích hợp cần **máy chủ Zalo Call**
 (app đăng nhập QR + gọi thoại/video) chạy cạnh Home Assistant. Mã máy chủ để riêng; bạn cài máy chủ bằng add-on hoặc Docker như bên dưới.
 
 ## 1. Cài máy chủ Zalo Call (làm trước)
@@ -37,16 +42,16 @@ hết hạn token thì máy chủ vẫn chạy bản đã tải kèm cảnh báo
 
 ## 2. Thêm tích hợp (HACS)
 
-[![Mở trong HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=TriTue2011&repository=zalo_call&category=integration)
+[![Mở trong HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=TriTue2011&repository=ralo&category=integration)
 
 1. **HACS → ⋮ → Custom repositories** → dán `https://github.com/TriTue2011/zalo_call`, **Type = Integration** → **Add**.
 2. Tìm **Ralo** trong HACS → **Download** → **khởi động lại Home Assistant**.
-3. Không dùng HACS: tải `zalo_call.zip` ở [Releases](https://github.com/TriTue2011/zalo_call/releases/latest), giải nén vào `custom_components/zalo_call` của HA, khởi động lại.
+3. Không dùng HACS: tải `ralo.zip` ở [Releases](https://github.com/TriTue2011/zalo_call/releases/latest), giải nén vào `custom_components/ralo` của HA, khởi động lại.
 4. Cập nhật: HACS báo khi có bản mới. Cần Home Assistant ≥ 2024.11.
 
 ## 3. Kết nối với máy chủ, đăng nhập Zalo
 
-[![Thêm tích hợp](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=zalo_call)
+[![Thêm tích hợp](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=ralo)
 
 **Cài đặt → Thiết bị & Dịch vụ → Thêm tích hợp → Zalo Call**, điền:
 
@@ -59,13 +64,13 @@ Báo «không gọi được tới app» → kiểm tra địa chỉ, cổng 808
 Tích hợp tự lo webhook sang Home Assistant. Sau khi kết nối có sẵn: cảm biến **Trạng thái Zalo**, ảnh **Mã QR đăng nhập**, nút đăng nhập/đăng xuất, cảm biến **Cuộc gọi** và **Sức khoẻ tài khoản**.
 
 **Đăng nhập Zalo (quét QR):** mở `http://<IP>:8080` → chọn **Qua PC** (gọi thoại/video) hoặc **Qua Web** (chỉ nhắn tin) → quét QR bằng Zalo trên điện thoại.
-Hoặc từ Home Assistant: dịch vụ `zalo_call.login_qr` (`type: pc` / `web`) rồi mở ảnh **Mã QR đăng nhập** và quét. Đăng xuất: `zalo_call.logout`.
+Hoặc từ Home Assistant: dịch vụ `ralo.login_qr` (`type: pc` / `web`) rồi mở ảnh **Mã QR đăng nhập** và quét. Đăng xuất: `ralo.logout`.
 
 **Chọn người nhận:** Cấu hình của tích hợp → «Người và nhóm nhận»: chọn từ danh bạ Zalo, mỗi người thành thực thể `notify.zalo_<tên>`.
 
 ## 4. Dịch vụ và blueprint
 
-Mọi dịch vụ `zalo_call.*` (gọi, nhắn tin, ảnh/tệp, quy tắc, AI, cài đặt app…) hiện đủ mô tả và ô nhập ở **Công cụ nhà phát triển → Hành động**.
+Mọi dịch vụ `ralo.*` (gọi, nhắn tin, ảnh/tệp, quy tắc, AI, cài đặt app…) hiện đủ mô tả và ô nhập ở **Công cụ nhà phát triển → Hành động**.
 Blueprint mẫu ở kho [Blueprint](https://github.com/TriTue2011/Blueprint) của cùng tác giả.
 
 ## Báo lỗi
@@ -74,6 +79,6 @@ Blueprint mẫu ở kho [Blueprint](https://github.com/TriTue2011/Blueprint) c�
 
 ## Giấy phép
 
-Phần tích hợp Home Assistant trong kho này (`custom_components/zalo_call`) phát hành theo **GNU AGPL-3.0** (xem [LICENSE](LICENSE)). Bản quyền © 2026 TriTue2011.
+Phần tích hợp Home Assistant trong kho này (`custom_components/ralo`) phát hành theo **GNU AGPL-3.0** (xem [LICENSE](LICENSE)). Bản quyền © 2026 TriTue2011.
 Ai sửa và phân phối, hoặc cho người khác dùng qua mạng, phải công khai mã đã sửa theo cùng giấy phép.
 **Máy chủ Zalo Call** (app đăng nhập QR, gọi thoại/video) là phần mềm riêng, không thuộc giấy phép này.
