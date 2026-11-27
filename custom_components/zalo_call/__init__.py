@@ -129,6 +129,9 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    # Tên hiển thị đổi «Zalo Call» → «Ralo» (27/11): tiêu đề mục cấu hình được HA LƯU lúc tạo, nên mục cũ phải đổi một lần ở đây.
+    if entry.title.startswith("Zalo Call"):
+        hass.config_entries.async_update_entry(entry, title="Ralo" + entry.title[len("Zalo Call"):])
     session = async_create_clientsession(
         hass, cookie_jar=aiohttp.CookieJar(unsafe=True))
     api = ZaloCallApi(session, entry.data[CONF_URL], entry.data[CONF_USERNAME],
