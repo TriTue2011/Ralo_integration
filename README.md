@@ -34,7 +34,7 @@ Kho này chỉ chứa **phần tích hợp Home Assistant** (`custom_components/
 
 | Cách | Dùng khi | Hướng dẫn |
 |---|---|---|
-| **Add-on Home Assistant** | Home Assistant OS / Supervised | Thêm kho add-on `https://github.com/TriTue2011/has-addons`, cài **Zalo Calling**: [hướng dẫn](https://github.com/TriTue2011/has-addons/blob/main/zalo_calling/DOCS.md) |
+| **Add-on Home Assistant** | Home Assistant OS / Supervised | Thêm kho add-on `https://github.com/TriTue2011/has-addons`, cài **Zalo Calling**: [hướng dẫn](https://github.com/TriTue2011/has-addons/blob/main/raling/DOCS.md) |
 | **Docker / Portainer** | Docker, Container, Core | Image khởi động công khai `ghcr.io/tritue2011/zalo-calling-loader:latest` (có giao diện) hoặc `:noui` |
 
 Máy chủ tải mã khi khởi động bằng **token GitHub chỉ đọc** (do chủ kho cấp: quyền *Contents: Read-only* trên kho mã máy chủ). Lần đầu cần token;
