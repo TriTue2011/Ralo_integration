@@ -14,10 +14,10 @@
     "conversation",
     "camera"
   ],
-  "documentation": "https://github.com/TriTue2011/zalo_call",
+  "documentation": "https://github.com/TriTue2011/Ralo_integration",
   "integration_type": "service",
   "iot_class": "local_push",
-  "issue_tracker": "https://github.com/TriTue2011/zalo_call/issues",
+  "issue_tracker": "https://github.com/TriTue2011/Ralo_integration/issues",
   "requirements": [],
-  "version": "2026.11.28.1"
+  "version": "2026.11.28.2"
 }

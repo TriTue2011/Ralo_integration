@@ -44,9 +44,9 @@ hết hạn token thì máy chủ vẫn chạy bản đã tải kèm cảnh báo
 
 [![Mở trong HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=TriTue2011&repository=ralo&category=integration)
 
-1. **HACS → ⋮ → Custom repositories** → dán `https://github.com/TriTue2011/zalo_call`, **Type = Integration** → **Add**.
+1. **HACS → ⋮ → Custom repositories** → dán `https://github.com/TriTue2011/Ralo_integration`, **Type = Integration** → **Add**.
 2. Tìm **Ralo** trong HACS → **Download** → **khởi động lại Home Assistant**.
-3. Không dùng HACS: tải `ralo.zip` ở [Releases](https://github.com/TriTue2011/zalo_call/releases/latest), giải nén vào `custom_components/ralo` của HA, khởi động lại.
+3. Không dùng HACS: tải `ralo.zip` ở [Releases](https://github.com/TriTue2011/Ralo_integration/releases/latest), giải nén vào `custom_components/ralo` của HA, khởi động lại.
 4. Cập nhật: HACS báo khi có bản mới. Cần Home Assistant ≥ 2024.11.
 
 ## 3. Kết nối với máy chủ, đăng nhập Zalo
@@ -75,7 +75,7 @@ Blueprint mẫu ở kho [Blueprint](https://github.com/TriTue2011/Blueprint) c�
 
 ## Báo lỗi
 
-[Issues](https://github.com/TriTue2011/zalo_call/issues). Khi báo lỗi kèm phiên bản tích hợp, phiên bản máy chủ và đoạn nhật ký (che mật khẩu/token).
+[Issues](https://github.com/TriTue2011/Ralo_integration/issues). Khi báo lỗi kèm phiên bản tích hợp, phiên bản máy chủ và đoạn nhật ký (che mật khẩu/token).
 
 ## Giấy phép
 
