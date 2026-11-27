@@ -65,7 +65,7 @@ async def async_ai_markup(hass: HomeAssistant, agent_id: str, text: str, aspects
     aspects = [a for a in aspects if a in ASPECTS]
     if not aspects or len(text.strip()) < MIN_TEXT or len(text) > MAX_TEXT:
         return None
-    data = {"text": build_prompt(text, aspects), "conversation_id": "zalo_call_style_" + uuid.uuid4().hex, "language": language}
+    data = {"text": build_prompt(text, aspects), "conversation_id": "ralo_style_" + uuid.uuid4().hex, "language": language}
     if agent_id:
         data["agent_id"] = agent_id
     try:

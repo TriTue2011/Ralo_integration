@@ -358,7 +358,7 @@ def _schema(e: dict) -> vol.Schema:
         fields[key] = _ANY
     known = {f["key"] for f in e["fields"]}
     inner = vol.Schema(fields, extra=vol.ALLOW_EXTRA)
-    return vol.All(lambda data: rename_aliases(e["name"], data, known), inner)       # tên trường zalo_bot cũ -> tên của zalo_call
+    return vol.All(lambda data: rename_aliases(e["name"], data, known), inner)       # tên trường zalo_bot cũ -> tên của ralo
 
 
 _PART_LABEL = {"mic": "Mic", "speaker": "Loa", "camera": "Camera"}
@@ -552,7 +552,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         return {"scope": scope, "thread_id": tid if scope == "thread" else "", "tag": tid if scope == "tag" else "", "rule": _show(rule)}
 
     async def apply_call_rule(call: ServiceCall) -> dict:
-        """Một automation áp quy tắc của nó cho MỘT cuộc gọi đang diễn ra (gọi từ automation bắt sự kiện zalo_call_call_state). Không lưu gì: quy tắc chỉ có
+        """Một automation áp quy tắc của nó cho MỘT cuộc gọi đang diễn ra (gọi từ automation bắt sự kiện ralo_call_state). Không lưu gì: quy tắc chỉ có
         hiệu lực cho cuộc gọi này, nên tắt/xoá automation là hết quy tắc. Nhiều automation cùng khớp: quy tắc cụ thể hơn (scope) thay quy tắc kém hơn;
         cùng bậc thì mỗi quy tắc báo ra loa của riêng nó, còn nghe máy/thiết bị/AI theo quy tắc đầu tiên bật `answer`."""
         rt, _ = _api(hass, call)
@@ -789,7 +789,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         except ValueError as err:
             raise ServiceValidationError(str(err)) from err
         if qr_login.logged_in(rt.coordinator.data) is True and not call.data.get("force"):
-            raise ServiceValidationError("Zalo đang đăng nhập. Hãy đăng xuất trước (dịch vụ zalo_call.logout), hoặc đặt force: true để đăng nhập lại.")
+            raise ServiceValidationError("Zalo đang đăng nhập. Hãy đăng xuất trước (dịch vụ ralo.logout), hoặc đặt force: true để đăng nhập lại.")
         try:
             await api.qr_new(client)
             await _refresh_qr_entity(call.data.get("entry_id") or None)

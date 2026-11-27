@@ -508,7 +508,7 @@ async def async_run_ai(hass: HomeAssistant, api: ZaloCallApi, call_id: str, plan
 # -- Vòng đời: chạy kế hoạch khi cuộc gọi được nghe máy ---------------------------------------------------------------
 
 async def _finish_alert(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> None:
-    """Cảnh báo đã đọc xong: làm theo `after` rồi báo HA (`zalo_call_alert_done`) để automation biết đúng lúc đó.
+    """Cảnh báo đã đọc xong: làm theo `after` rồi báo HA (`ralo_alert_done`) để automation biết đúng lúc đó.
       hangup  = cúp máy;  connect = nối thiết bị đã cài (không có thiết bị nào thì cúp);  wait = giữ máy, người nhận hoặc automation tự cúp.
     after trống: có thiết bị để nối thì connect, không thì hangup (báo mất điện... đọc xong là cúp)."""
     after = plan.after or ("connect" if plan.connect else "hangup")
@@ -520,10 +520,10 @@ async def _finish_alert(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) 
     elif after == "hangup":
         await rt.api.call_end(call_id)
     camera = bool(connected and plan.connect.get("camera"))
-    hass.bus.async_fire("zalo_call_alert_done", {"call_id": call_id, "thread_id": plan.thread_id, "after": after, "connected": connected,
+    hass.bus.async_fire("ralo_alert_done", {"call_id": call_id, "thread_id": plan.thread_id, "after": after, "connected": connected,
                                                   "camera": camera, "ended": after == "hangup"})
     if connected:                                       # tương thích: automation đang nghe chuyển máy vẫn nhận (reason alert)
-        hass.bus.async_fire("zalo_call_ai_handover", {"call_id": call_id, "heard": "", "reason": "alert", "connected": True, "camera": camera})
+        hass.bus.async_fire("ralo_ai_handover", {"call_id": call_id, "heard": "", "reason": "alert", "connected": True, "camera": camera})
 
 
 # -- Thông báo «có cuộc gọi đến» ra loa (bật/tắt theo quy tắc, mặc định TẮT) ------------------------------------------
@@ -704,7 +704,7 @@ async def _run_plan(hass: HomeAssistant, rt: Any, call_id: str, plan: Plan) -> N
             if plan.connect_ai:                              # AI chọn: CAMERA = cả camera, còn lại (hoặc không chọn) = chỉ loa + mic
                 connect = devices_for_mode(plan.connect, "always" if choice == "camera" else "voice")
             connected = await async_connect_devices(rt, call_id, connect, plan.video, plan.connect_now, plan.echo_guard)
-            hass.bus.async_fire("zalo_call_ai_handover", {"call_id": call_id, "heard": heard, "reason": reason, "connected": connected,
+            hass.bus.async_fire("ralo_ai_handover", {"call_id": call_id, "heard": heard, "reason": reason, "connected": connected,
                                                           "camera": bool(connected and connect.get("camera"))})
         elif plan.hangup:
             await api.call_end(call_id)

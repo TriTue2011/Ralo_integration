@@ -34,7 +34,7 @@ def normalize_thread_type(value: Any) -> str:
 
 
 def rename_aliases(service: str, data: Any, fields: Collection[str] = ()) -> Any:
-    """Bản sao `data` với khoá cũ của zalo_bot đổi sang tên của zalo_call. Khoá đích đã có thì giữ nó và bỏ khoá cũ.
+    """Bản sao `data` với khoá cũ của zalo_bot đổi sang tên của ralo. Khoá đích đã có thì giữ nó và bỏ khoá cũ.
     Không đổi khi khoá cũ chính là một trường của dịch vụ, hoặc khi dịch vụ không có trường đích (trừ thread_id)."""
     if not isinstance(data, Mapping):
         return data

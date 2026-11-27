@@ -39,7 +39,7 @@ _MD = re.compile(r"[*_#`>~]+")
 
 async def async_handle_message(hass: HomeAssistant, entry: ConfigEntry, event: dict) -> None:
     """Tin nhắn đến từ webhook, xử lý THEO QUY TẮC (dịch vụ set_rule). Không có quy tắc (hoặc không biết người gửi quen/lạ) = không làm gì:
-    không STT, không AI, không gửi gì. Tin thoại 1-1: quy tắc `voice_text` thì Zalo STT chuyển thành chữ (bắn zalo_call_voice_text); quy tắc
+    không STT, không AI, không gửi gì. Tin thoại 1-1: quy tắc `voice_text` thì Zalo STT chuyển thành chữ (bắn ralo_voice_text); quy tắc
     `reply_ai` thì AI (pipeline/agent trong quy tắc) trả lời, bằng tin thoại nếu tin đến là tin thoại."""
     rt = hass.data.get(DOMAIN, {}).get(entry.entry_id)
     if rt is None or event.get("is_self"):
@@ -59,7 +59,7 @@ async def async_handle_message(hass: HomeAssistant, entry: ConfigEntry, event: d
         if not text:
             _LOGGER.debug("Zalo STT không ra chữ cho tin thoại %s (mã %s)", event.get("message_id"), (res or {}).get("error"))
             return
-        hass.bus.async_fire("zalo_call_voice_text", {"thread_id": event.get("thread_id"), "sender_id": event.get("sender_id"),
+        hass.bus.async_fire("ralo_voice_text", {"thread_id": event.get("thread_id"), "sender_id": event.get("sender_id"),
                                                     "message_id": event.get("message_id"), "text": text})
         event = dict(event, content=text, from_voice=True)
     if rule.get("reply_ai") and event.get("content"):
@@ -105,7 +105,7 @@ async def async_ai_reply(hass: HomeAssistant, entry: ConfigEntry,
         from_voice = bool(event.get("from_voice"))
         inline = bool(aspects) and bool(d.get(CONF_TEXT_AI_INLINE)) and not from_voice          # nói chuyện bằng giọng: không dặn định dạng chữ
         # Nhanh nhất: nhúng chỉ dẫn định dạng VÀO CHÍNH lượt hỏi, trợ lý vừa trả lời vừa tự định dạng/chọn emoji, không gọi thêm lần nào.
-        data = {"text": text + ("\n\n" + build_inline_hint(aspects) if inline else ""), "conversation_id": "zalo_call_" + thread_id,
+        data = {"text": text + ("\n\n" + build_inline_hint(aspects) if inline else ""), "conversation_id": "ralo_" + thread_id,
                 "language": hass.config.language}
         agent = rule.get("agent") or pipeline_agent(hass, rule.get("pipeline") or None)      # trợ lý trong quy tắc (hoặc của pipeline)
         if agent:

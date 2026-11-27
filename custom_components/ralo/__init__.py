@@ -3,8 +3,8 @@
 Tích hợp này không tự nói chuyện với Zalo: nó gọi sang app Zalo PC chạy
 trong Docker (`zalo/zalo-pc-app`, cùng repo), giống cách `zalo_bot` gọi gateway.
 App đẩy sự kiện (tin nhắn, cuộc gọi) về HA qua webhook; HA bắn lại lên bus
-dưới tên `zalo_call_message`, `zalo_call_call`, `zalo_call_group_event`,
-`zalo_call_reaction`.
+dưới tên `ralo_message`, `ralo_call`, `ralo_group_event`,
+`ralo_reaction`.
 """
 from __future__ import annotations
 
@@ -167,7 +167,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if kind in WEBHOOK_KINDS:
             hass_.bus.async_fire(EVENT_PREFIX + kind, payload)
         if kind == "voice2text":
-            # Ket qua Zalo AI chuyen giong noi: zalo_call_voice_to_text {req_id, text, error}
+            # Ket qua Zalo AI chuyen giong noi: ralo_voice_to_text {req_id, text, error}
             hass_.bus.async_fire(EVENT_PREFIX + "voice_to_text", payload)
             return web.Response(status=200)
         if kind == "call":
@@ -221,7 +221,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def _async_call_state(hass: HomeAssistant, bridge: CallAudioBridge,
                             payload: dict) -> None:
-    """Su kien `zalo_call_call_state` cho automation + dieu khien cau noi am
+    """Su kien `ralo_call_state` cho automation + dieu khien cau noi am
     thanh. state: incoming / ringing / answered / declined / no_answer /
     missed / rejected / ended / error ("tu choi" va "khong nghe may" la
     declined va no_answer — dung de lam tac vu khac sau do)."""
@@ -255,7 +255,7 @@ async def _async_call_state(hass: HomeAssistant, bridge: CallAudioBridge,
 
 def _stale_own_webhook(hass: HomeAssistant, old: str, url: str) -> bool:
     """Webhook CŨ của app trỏ về chính HA này (cùng địa chỉ) nhưng id đã KHÔNG còn đăng ký (xoá rồi thêm lại tích hợp thì id đổi): HA trả 200 cho mọi id lạ nên app tưởng đã gửi được
-    trong khi không ai xử lý ⇒ không có sự kiện zalo_call_call_state, automation không chạy. Webhook của một thứ khác ĐANG đăng ký trên HA, hay của hệ thống khác, thì KHÔNG phải loại này."""
+    trong khi không ai xử lý ⇒ không có sự kiện ralo_call_state, automation không chạy. Webhook của một thứ khác ĐANG đăng ký trên HA, hay của hệ thống khác, thì KHÔNG phải loại này."""
     try:
         o, n = urlsplit(old), urlsplit(url)
     except ValueError:

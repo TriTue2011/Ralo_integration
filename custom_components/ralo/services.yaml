@@ -9,7 +9,7 @@ send_message:
       required: false
       selector:
         config_entry:
-          integration: zalo_call
+          integration: ralo
     recipient: &id002
       name: Chọn người hoặc nhóm từ danh bạ
       description: Chọn từ danh bạ (thực thể «Zalo Call <tên>») thay cho việc dán mã. Người không có trong
@@ -17,7 +17,7 @@ send_message:
       selector:
         entity:
           domain: notify
-          integration: zalo_call
+          integration: ralo
     thread_id:
       name: Mã hội thoại (threadId)
       description: UserId (1-1) hoặc GroupId (nhóm).
@@ -7769,7 +7769,7 @@ make_call:
       description: Thêm điều kiện riêng để AI chuyển cuộc gọi cho người nhà nói trực tiếp. Mặc định AI
         đã tự chuyển khi người gọi muốn gặp người trong nhà, có việc khẩn cấp hoặc AI không giúp được.
         Khi chuyển, cuộc gọi không bị cúp, thiết bị nhà bật theo ô «Thiết bị nhà dùng khi người nhà nói
-        trực tiếp», và Home Assistant bắn sự kiện zalo_call_ai_handover.
+        trực tiếp», và Home Assistant bắn sự kiện ralo_ai_handover.
       selector:
         text: null
     tts_engine:
@@ -7904,7 +7904,7 @@ answer_call:
       description: Thêm điều kiện riêng để AI chuyển cuộc gọi cho người nhà nói trực tiếp. Mặc định AI
         đã tự chuyển khi người gọi muốn gặp người trong nhà, có việc khẩn cấp hoặc AI không giúp được.
         Khi chuyển, cuộc gọi không bị cúp, thiết bị nhà bật theo ô «Thiết bị nhà dùng khi người nhà nói
-        trực tiếp», và Home Assistant bắn sự kiện zalo_call_ai_handover.
+        trực tiếp», và Home Assistant bắn sự kiện ralo_ai_handover.
       selector:
         text: null
     tts_engine:
@@ -7944,7 +7944,7 @@ reject_call:
 voice_to_text:
   name: Chuyển giọng nói thành văn bản (Zalo AI)
   description: Gửi một tin nhắn thoại (URL tệp .aac/.mp3/.m4a trên máy chủ Zalo) cho Zalo AI và trả về
-    văn bản. Chỉ dùng cho tin nhắn thoại, không phải mic trực tiếp. Kết quả cũng bắn sự kiện zalo_call_voice_to_text.
+    văn bản. Chỉ dùng cho tin nhắn thoại, không phải mic trực tiếp. Kết quả cũng bắn sự kiện ralo_voice_to_text.
   fields:
     entry_id: *id001
     url:
@@ -8348,7 +8348,7 @@ set_rule:
       description: Thêm điều kiện riêng để AI chuyển cuộc gọi cho người nhà nói trực tiếp. Mặc định AI
         đã tự chuyển khi người gọi muốn gặp người trong nhà, có việc khẩn cấp hoặc AI không giúp được.
         Khi chuyển, cuộc gọi không bị cúp, thiết bị nhà bật theo ô «Thiết bị nhà dùng khi người nhà nói
-        trực tiếp», và Home Assistant bắn sự kiện zalo_call_ai_handover.
+        trực tiếp», và Home Assistant bắn sự kiện ralo_ai_handover.
       selector:
         text: null
     trusted:
@@ -8365,7 +8365,7 @@ set_rule:
         boolean: null
     voice_text:
       name: Chuyển tin thoại thành chữ
-      description: Tin thoại 1-1 được Zalo chuyển thành chữ, và Home Assistant bắn sự kiện zalo_call_voice_text.
+      description: Tin thoại 1-1 được Zalo chuyển thành chữ, và Home Assistant bắn sự kiện ralo_voice_text.
       selector:
         boolean: null
     reply_trigger:
@@ -8443,7 +8443,7 @@ set_rule:
     video_request:
       name: Khi người gọi xin chuyển sang video
       description: 'Người đang gọi thoại có thể xin chuyển sang video. Mặc định KHÔNG tự đồng ý (riêng
-        tư): chỉ báo cho automation qua sự kiện zalo_call_call_state (trạng thái video_request). Chọn
+        tư): chỉ báo cho automation qua sự kiện ralo_call_state (trạng thái video_request). Chọn
         đồng ý nếu muốn tự động, nhưng chỉ có tác dụng khi công tắc «Cho phép đồng ý chuyển sang video»
         trên thiết bị Zalo Call đang BẬT (mặc định TẮT).'
       selector:
@@ -8741,7 +8741,7 @@ alert_call:
   name: Gọi cảnh báo
   description: 'Gọi để BÁO ĐỘNG: người nhận nghe máy, AI đọc nội dung cảnh báo (không hỏi gì), rồi làm
     theo ô «Đọc cảnh báo xong thì». Báo người ngã, có trộm: nên nối thiết bị nhà để người nhận xem hiện
-    trường. Báo mất điện, rò nước: đọc xong cúp máy. Đọc xong, Home Assistant bắn sự kiện zalo_call_alert_done
+    trường. Báo mất điện, rò nước: đọc xong cúp máy. Đọc xong, Home Assistant bắn sự kiện ralo_alert_done
     để automation biết đúng lúc đó.'
   fields:
     entry_id: *id001
@@ -8859,7 +8859,7 @@ alert_call:
         text: null
 apply_call_rule:
   name: Áp quy tắc cho một cuộc gọi
-  description: 'Dùng trong automation bắt sự kiện zalo_call_call_state (state = incoming): áp quy tắc
+  description: 'Dùng trong automation bắt sự kiện ralo_call_state (state = incoming): áp quy tắc
     của automation đó cho ĐÚNG cuộc gọi này (nghe máy, AI, báo ra loa, thiết bị). Không lưu gì: tắt hoặc
     xoá automation là quy tắc hết hiệu lực. Nhiều automation cùng khớp: quy tắc cụ thể hơn thắng; cùng
     bậc thì mỗi quy tắc báo ra loa của nó, còn nghe máy/thiết bị/AI theo quy tắc đầu tiên bật tự nghe
@@ -8961,7 +8961,7 @@ apply_call_rule:
       description: Thêm điều kiện riêng để AI chuyển cuộc gọi cho người nhà nói trực tiếp. Mặc định AI
         đã tự chuyển khi người gọi muốn gặp người trong nhà, có việc khẩn cấp hoặc AI không giúp được.
         Khi chuyển, cuộc gọi không bị cúp, thiết bị nhà bật theo ô «Thiết bị nhà dùng khi người nhà nói
-        trực tiếp», và Home Assistant bắn sự kiện zalo_call_ai_handover.
+        trực tiếp», và Home Assistant bắn sự kiện ralo_ai_handover.
       selector:
         text: null
     trusted:
@@ -8978,7 +8978,7 @@ apply_call_rule:
         boolean: null
     voice_text:
       name: Chuyển tin thoại thành chữ
-      description: Tin thoại 1-1 được Zalo chuyển thành chữ, và Home Assistant bắn sự kiện zalo_call_voice_text.
+      description: Tin thoại 1-1 được Zalo chuyển thành chữ, và Home Assistant bắn sự kiện ralo_voice_text.
       selector:
         boolean: null
     reply_trigger:
@@ -9065,7 +9065,7 @@ apply_call_rule:
     video_request:
       name: Khi người gọi xin chuyển sang video
       description: 'Người đang gọi thoại có thể xin chuyển sang video. Mặc định KHÔNG tự đồng ý (riêng
-        tư): chỉ báo cho automation qua sự kiện zalo_call_call_state (trạng thái video_request). Chọn
+        tư): chỉ báo cho automation qua sự kiện ralo_call_state (trạng thái video_request). Chọn
         đồng ý nếu muốn tự động, nhưng chỉ có tác dụng khi công tắc «Cho phép đồng ý chuyển sang video»
         trên thiết bị Zalo Call đang BẬT (mặc định TẮT).'
       selector:

@@ -1,5 +1,5 @@
 {
-  "domain": "zalo_call",
+  "domain": "ralo",
   "name": "Ralo",
   "after_dependencies": [
     "assist_pipeline"

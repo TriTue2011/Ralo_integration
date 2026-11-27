@@ -2,7 +2,7 @@
 nhận tin và cuộc gọi»), mỗi người được chọn là một thực thể ``notify.<tên>``.
 
 Mục đích chính: blueprint và tự động hoá **chọn người nhận từ danh sách thực thể** thay vì gõ tay mã Zalo. Mỗi thực thể có thuộc tính ``thread_id`` và ``type``
-(``user`` hoặc ``group``) để truyền thẳng cho ``zalo_call.send_message``, ``zalo_call.make_call``, ``zalo_call.alert_call``. Gọi ``notify.send_message`` vào thực
+(``user`` hoặc ``group``) để truyền thẳng cho ``ralo.send_message``, ``ralo.make_call``, ``ralo.alert_call``. Gọi ``notify.send_message`` vào thực
 thể này cũng gửi tin chữ tới người đó."""
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ RETRY_WHEN_APP_DOWN = timedelta(seconds=60)    # app chưa đăng nhập lúc HA
 def remembered_recipients(rows, entry_id: str) -> dict[str, str]:
     """{«user:<id>» | «group:<id>»: tên} từ các thực thể notify ĐÃ ĐĂNG KÝ của entry này. Dùng khi app Zalo chưa lên: không đọc được danh bạ thì vẫn dựng lại
     đúng các thực thể đã có (mã người nằm ngay trong unique_id «<entry>_to_<loại>_<mã>»), để thuộc tính ``thread_id`` không biến mất.
-    18/11/2026: HA khởi động lúc app đăng xuất → tuỳ chọn rỗng + danh bạ None ⇒ KHÔNG dựng thực thể nào ⇒ notify.zalo_call_dai_ca «unavailable», blueprint nghe máy
+    18/11/2026: HA khởi động lúc app đăng xuất → tuỳ chọn rỗng + danh bạ None ⇒ KHÔNG dựng thực thể nào ⇒ notify.ralo_dai_ca «unavailable», blueprint nghe máy
     lấy state_attr(...,'thread_id') = None → danh sách ['None'] → quy tắc im lặng bỏ qua MỌI cuộc gọi cho tới lần làm mới kế (1 giờ).
     rows: iterable (domain, unique_id, tên gốc)."""
     prefix = "%s_to_" % entry_id
@@ -134,7 +134,7 @@ class ZaloRecipient(NotifyEntity):
         self._attr_entity_registry_visible_default = visible       # ngoài danh sách đã chọn: ẩn khỏi bảng điều khiển, vẫn chọn được trong blueprint
         self._kind, self._rid = split_recipient(value)
         self._attr_unique_id = "%s_to_%s_%s" % (entry.entry_id, self._kind, self._rid)
-        self._attr_name = name                      # hiển thị «Zalo Call <tên>», mã thực thể notify.zalo_call_<tên>
+        self._attr_name = name                      # hiển thị «Zalo Call <tên>», mã thực thể notify.ralo_<tên>
         self._attr_device_info = device_info(entry)
 
     @property

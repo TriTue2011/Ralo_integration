@@ -1,6 +1,6 @@
 """Hang so cua tich hop Zalo Call."""
 
-DOMAIN = "zalo_call"
+DOMAIN = "ralo"
 
 CONF_URL = "url"
 CONF_USERNAME = "username"
@@ -44,12 +44,12 @@ CONF_MIC = "mic"                  # nguon mic cho cuoc goi
 CONF_CAMERA = "camera"            # camera cho video call
 
 # Su kien ban len bus cua HA
-EVENT_PREFIX = DOMAIN + "_"       # zalo_call_message / zalo_call_call / ...
+EVENT_PREFIX = DOMAIN + "_"       # ralo_message / ralo_call / ...
 SCAN_INTERVAL_SECONDS = 10
 
 # Cau noi am thanh cuoc goi (loa / mic / camera: mac dinh + ghi de moi cuoc goi)
 CONF_MIC_URL = "mic_url"          # URL mic bat ky (rtsp/http...), thang CONF_MIC
-EVENT_STATE = EVENT_PREFIX + "call_state"   # zalo_call_call_state: state + thiet bi
+EVENT_STATE = EVENT_PREFIX + "call_state"   # ralo_call_state: state + thiet bi
 
 # Thiet bi mac dinh nam tren THIET BI (cac thuc the select/text/switch), luu bang
 # Store cua HA — khong phai options (doi khong lam tai lai tich hop).

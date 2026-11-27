@@ -1,5 +1,5 @@
 """Phan thuan cua cau noi am thanh cuoc goi — KHONG import Home Assistant,
-nen test duoc ngoai HA (tests/test_zalo_call_bridge.py).
+nen test duoc ngoai HA (tests/test_ralo_bridge.py).
 
 - derive_state: trang thai cuoc goi cho automation (ringing / answered /
   declined / no_answer / missed / ended / incoming / error) tu su kien app.
