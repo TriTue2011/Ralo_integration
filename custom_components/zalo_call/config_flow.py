@@ -120,11 +120,11 @@ class ZaloCallConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def _create(self, url: str, uid: str | None, label: str | None) -> ConfigFlowResult:
         data = dict(self._creds, **{CONF_WEBHOOK_ID: webhook.async_generate_id()})
-        title = "Zalo Call (%s)" % url.split("//", 1)[-1]
+        title = "Ralo (%s)" % url.split("//", 1)[-1]
         if uid:
             data[CONF_ACCOUNT] = uid
             data[CONF_ACCOUNT_NAME] = label or uid
-            title = "Zalo Call · %s" % (label or uid)
+            title = "Ralo · %s" % (label or uid)
         return self.async_create_entry(title=title, data=data)
 
     # -- Sai mật khẩu app (ví dụ vừa đổi trong WebUI): hỏi lại mật khẩu, không phải xoá/thêm lại --
@@ -166,7 +166,7 @@ class ZaloCallConfigFlow(ConfigFlow, domain=DOMAIN):
                     await self.async_set_unique_id(url)
                     self._abort_if_unique_id_configured()
                 return self.async_update_reload_and_abort(
-                    entry, unique_id=url, title="Zalo Call (%s)" % url.split("//", 1)[-1],
+                    entry, unique_id=url, title="Ralo (%s)" % url.split("//", 1)[-1],
                     data_updates={CONF_URL: url, CONF_USERNAME: user_input[CONF_USERNAME],
                                   CONF_PASSWORD: user_input[CONF_PASSWORD]})
         schema = vol.Schema({

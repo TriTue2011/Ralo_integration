@@ -24,11 +24,11 @@ from .call_voice import async_take_over
 from .const import DOMAIN
 
 API_ID = DOMAIN
-API_NAME = "Zalo Call"
+API_NAME = "Ralo"
 MAX_MATCHES = 8
 
 API_PROMPT = (
-    "Zalo Call cho phép gọi điện và nhắn tin Zalo bằng giọng nói. "
+    "Ralo cho phép gọi điện và nhắn tin Zalo bằng giọng nói. "
     "Gọi cho ai đó: dùng tim_nguoi nếu chỉ có tên, rồi goi_dien. Nếu có nhiều người trùng tên thì liệt kê đánh số và hỏi người dùng chọn; "
     "nếu người dùng chưa nói rõ họ muốn gọi ai thì hỏi lại trước khi gọi. "
     "Muốn nhờ trợ lý nói trước một câu khi người kia nghe máy (ví dụ báo tin) thì điền thong_bao; muốn trợ lý tiếp tục nói chuyện thì đặt ai=true "
@@ -71,7 +71,7 @@ def _rt(hass: HomeAssistant):
     for entry in hass.config_entries.async_entries(DOMAIN):
         if entry.state is ConfigEntryState.LOADED and entry.entry_id in hass.data.get(DOMAIN, {}):
             return hass.data[DOMAIN][entry.entry_id]
-    raise HomeAssistantError("Zalo Call chưa sẵn sàng")
+    raise HomeAssistantError("Ralo chưa sẵn sàng")
 
 
 def in_call_context(rt, llm_context: llm.LLMContext) -> bool:

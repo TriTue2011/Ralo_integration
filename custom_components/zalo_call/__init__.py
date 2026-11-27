@@ -179,7 +179,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass_.async_create_task(async_handle_message(hass_, entry, payload))
         return web.Response(status=200)
 
-    webhook.async_register(hass, DOMAIN, "Zalo Call", webhook_id, _handle,
+    webhook.async_register(hass, DOMAIN, "Ralo", webhook_id, _handle,
                            allowed_methods=["POST"])
     entry.async_on_unload(lambda: webhook.async_unregister(hass, webhook_id))
     hass.async_create_task(_async_push_webhooks(hass, defaults, api, webhook_id))

@@ -1,4 +1,4 @@
-# 📞 Zalo Call — tích hợp Home Assistant
+# 🏠 Ralo (Zalo Call) — tích hợp Home Assistant
 
 > **⚠️ MIỄN TRỪ TRÁCH NHIỆM — ĐỌC TRƯỚC KHI DÙNG**
 >
@@ -40,7 +40,7 @@ hết hạn token thì máy chủ vẫn chạy bản đã tải kèm cảnh báo
 [![Mở trong HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=TriTue2011&repository=zalo_call&category=integration)
 
 1. **HACS → ⋮ → Custom repositories** → dán `https://github.com/TriTue2011/zalo_call`, **Type = Integration** → **Add**.
-2. Tìm **Zalo Call** trong HACS → **Download** → **khởi động lại Home Assistant**.
+2. Tìm **Ralo** trong HACS → **Download** → **khởi động lại Home Assistant**.
 3. Không dùng HACS: tải `zalo_call.zip` ở [Releases](https://github.com/TriTue2011/zalo_call/releases/latest), giải nén vào `custom_components/zalo_call` của HA, khởi động lại.
 4. Cập nhật: HACS báo khi có bản mới. Cần Home Assistant ≥ 2024.11.
 
